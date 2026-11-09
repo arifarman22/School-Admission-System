@@ -41,21 +41,31 @@ function statusExplanation(status: Hold['status']): string {
   }
 }
 
-function HoldDetails({ hold }: { hold: Hold }) {
+interface HoldDetailsProps {
+  hold: Hold;
+  isFetching: boolean;
+  updatedAt: number;
+  refetch: () => Promise<unknown>;
+}
+
+function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps) {
   const classQuery = useClass(hold.classId);
   const myHolds = useMyHolds();
-  const holdQuery = useHold(hold.holdId);
   const confirm = useConfirmHold();
   const cancel = useCancelHold();
   const [askCancel, setAskCancel] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>(null);
+  const [elapsedFor, setElapsedFor] = useState<string | null>(null);
 
   const ownsHold = myHolds.data ? myHolds.data.some((h) => h.holdId === hold.holdId) : null;
   const busy = confirm.isPending || cancel.isPending;
   const actionable = hold.status === 'HELD' && ownsHold !== false;
+  const awaitingExpiry = hold.status === 'HELD' && elapsedFor === hold.expiresAt;
 
-  const refetchHold = holdQuery.refetch;
-  const onElapsed = useCallback(() => void refetchHold(), [refetchHold]);
+  const onElapsed = useCallback(() => {
+    setElapsedFor(hold.expiresAt);
+    void refetch();
+  }, [hold.expiresAt, refetch]);
 
   const reportError = (title: string, error: unknown) => {
     const expired = error instanceof ApiError && error.code === 'HOLD_EXPIRED';
@@ -63,6 +73,7 @@ function HoldDetails({ hold }: { hold: Hold }) {
   };
 
   const onConfirm = () => {
+    if (!actionable || awaitingExpiry || busy) return;
     setOutcome(null);
     confirm.mutate(hold.holdId, {
       onSuccess: (result) =>
@@ -76,6 +87,7 @@ function HoldDetails({ hold }: { hold: Hold }) {
   };
 
   const onCancel = () => {
+    if (!actionable || busy) return;
     setOutcome(null);
     cancel.mutate(hold.holdId, {
       onSuccess: () => {
@@ -125,6 +137,11 @@ function HoldDetails({ hold }: { hold: Hold }) {
               <span className="font-semibold">{hold.status}</span>
             </DetailRow>
             <DetailRow label="Class">{className ?? hold.classId}</DetailRow>
+            <DetailRow label="Seats available">
+              {classQuery.data
+                ? `${classQuery.data.availableSeats} of ${classQuery.data.totalSeats}`
+                : '—'}
+            </DetailRow>
             <DetailRow label="Hold ID">
               <span className="font-mono text-xs">{hold.holdId}</span>
             </DetailRow>
@@ -151,13 +168,21 @@ function HoldDetails({ hold }: { hold: Hold }) {
           )}
 
           <div className="flex flex-col gap-2">
-            <Button onClick={onConfirm} disabled={!actionable || busy} loading={confirm.isPending}>
-              {hold.status === 'CONFIRMED' ? 'Admission confirmed' : 'Confirm Admission'}
+            <Button
+              onClick={onConfirm}
+              disabled={!actionable || awaitingExpiry || busy}
+              loading={confirm.isPending}
+            >
+              {hold.status === 'CONFIRMED'
+                ? 'Admission confirmed'
+                : awaitingExpiry
+                  ? 'Checking hold status…'
+                  : 'Confirm Admission'}
             </Button>
             <Button
               variant="secondary"
               onClick={() => setAskCancel(true)}
-              disabled={!actionable || busy}
+              disabled={!actionable || awaitingExpiry || busy}
             >
               Cancel Application
             </Button>
@@ -165,10 +190,7 @@ function HoldDetails({ hold }: { hold: Hold }) {
 
           <p className="text-xs text-slate-500">
             Status is checked with the server{' '}
-            {holdQuery.isFetching
-              ? 'now…'
-              : `at ${formatDateTime(new Date(holdQuery.dataUpdatedAt).toISOString())}`}
-            .
+            {isFetching ? 'now…' : `at ${formatDateTime(new Date(updatedAt).toISOString())}`}.
           </p>
         </Card>
       </div>
@@ -235,11 +257,30 @@ export function AdmissionPage() {
         ) : (
           <>
             {holdQuery.isError && (
-              <Alert tone="warning" title="Could not refresh status">
-                {getErrorMessage(holdQuery.error)} The status below may be out of date.
+              <Alert
+                tone="warning"
+                title={holdQuery.isFetching ? 'Reconnecting…' : 'Could not refresh status'}
+                action={
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void holdQuery.refetch()}
+                    loading={holdQuery.isFetching}
+                  >
+                    Retry now
+                  </Button>
+                }
+              >
+                {getErrorMessage(holdQuery.error)} The status below may be out of date. Do not rely
+                on the timer alone: your hold is valid only while the server reports HELD.
               </Alert>
             )}
-            <HoldDetails hold={holdQuery.data!} />
+            <HoldDetails
+              hold={holdQuery.data!}
+              isFetching={holdQuery.isFetching}
+              updatedAt={holdQuery.dataUpdatedAt}
+              refetch={holdQuery.refetch}
+            />
           </>
         )}
       </RequireStudentId>

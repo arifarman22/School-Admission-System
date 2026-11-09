@@ -18,9 +18,12 @@ export function LiveStatus({ updatedAt, isFetching, isError }: LiveStatusProps) 
   const now = useNow();
   const age = updatedAt > 0 ? describeAge(now - updatedAt) : 'never';
 
-  const tone = isError
-    ? { dot: 'bg-rose-500', label: 'Connection lost', text: 'text-rose-700' }
-    : { dot: 'bg-emerald-500', label: 'Live', text: 'text-emerald-700' };
+  const reconnecting = isError && isFetching;
+  const tone = reconnecting
+    ? { dot: 'bg-amber-500', label: 'Reconnecting…', text: 'text-amber-700' }
+    : isError
+      ? { dot: 'bg-rose-500', label: 'Connection lost', text: 'text-rose-700' }
+      : { dot: 'bg-emerald-500', label: 'Live', text: 'text-emerald-700' };
 
   return (
     <div
@@ -29,7 +32,7 @@ export function LiveStatus({ updatedAt, isFetching, isError }: LiveStatusProps) 
       aria-live="polite"
     >
       <span className="relative flex size-2">
-        {!isError && isFetching && (
+        {isFetching && (
           <span
             className={`absolute inline-flex size-full animate-ping rounded-full opacity-60 ${tone.dot}`}
           />

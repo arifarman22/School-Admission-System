@@ -93,7 +93,7 @@ function Applications() {
   return (
     <div className="space-y-6">
       {query.isError && (
-        <Alert tone="warning" title="Could not refresh">
+        <Alert tone="warning" title={query.isFetching ? 'Reconnecting…' : 'Could not refresh'}>
           {getErrorMessage(query.error)} The list below may be out of date.
         </Alert>
       )}

@@ -13,6 +13,8 @@ export function useClasses({ live = false }: { live?: boolean } = {}) {
       ? {
           refetchInterval: CLASS_LIST_REFRESH_MS,
           refetchIntervalInBackground: false,
+          refetchOnWindowFocus: 'always' as const,
+          refetchOnReconnect: 'always' as const,
           retry: false,
         }
       : {}),
@@ -24,6 +26,7 @@ export function useClass(classId: string | undefined) {
     queryKey: queryKeys.classes.detail(classId ?? ''),
     queryFn: ({ signal }) => getClass(classId as string, signal),
     enabled: Boolean(classId),
+    refetchOnWindowFocus: 'always',
   });
 }
 

@@ -57,16 +57,7 @@ export function ClassCard({ admissionClass, stale = false }: ClassCardProps) {
         <SeatAvailability seats={admissionClass} />
 
         <div className="mt-auto">
-          {full ? (
-            <p
-              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-center text-sm font-medium text-rose-700"
-              role="note"
-            >
-              This class is full. No seats are available right now.
-            </p>
-          ) : (
-            <ApplyButton classId={admissionClass.id} className={admissionClass.name} />
-          )}
+          <ApplyButton classId={admissionClass.id} className={admissionClass.name} full={full} />
         </div>
       </article>
     </Card>

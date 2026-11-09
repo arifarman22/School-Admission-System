@@ -10,6 +10,7 @@ import { Button } from '../common/Button';
 interface ApplyButtonProps {
   classId: string;
   className: string;
+  full?: boolean;
 }
 
 function ExistingApplicationLink({ classId }: { classId: string }) {
@@ -27,13 +28,14 @@ function ExistingApplicationLink({ classId }: { classId: string }) {
   );
 }
 
-export function ApplyButton({ classId, className }: ApplyButtonProps) {
+export function ApplyButton({ classId, className, full = false }: ApplyButtonProps) {
   const { studentId } = useStudentId();
   const createHold = useCreateHold();
   const navigate = useNavigate();
   const [needsIdentity, setNeedsIdentity] = useState(false);
 
   const apply = () => {
+    if (createHold.isPending) return;
     if (!studentId) {
       setNeedsIdentity(true);
       document.getElementById(STUDENT_ID_INPUT_ID)?.focus();
@@ -51,16 +53,25 @@ export function ApplyButton({ classId, className }: ApplyButtonProps) {
 
   return (
     <div className="space-y-2">
-      <Button
-        className="w-full"
-        onClick={apply}
-        loading={createHold.isPending}
-        aria-label={`Apply now for ${className}`}
-      >
-        {createHold.isPending ? 'Holding a seat…' : 'Apply Now'}
-      </Button>
+      {full ? (
+        <p
+          className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-center text-sm font-medium text-rose-700"
+          role="note"
+        >
+          This class is full. No seats are available right now.
+        </p>
+      ) : (
+        <Button
+          className="w-full"
+          onClick={apply}
+          loading={createHold.isPending}
+          aria-label={`Apply now for ${className}`}
+        >
+          {createHold.isPending ? 'Holding a seat…' : 'Apply Now'}
+        </Button>
+      )}
 
-      {needsIdentity && !studentId && (
+      {needsIdentity && !studentId && !full && (
         <p role="alert" className="text-xs text-rose-600">
           Enter your 17-digit birth registration number at the top of the page first.
         </p>
