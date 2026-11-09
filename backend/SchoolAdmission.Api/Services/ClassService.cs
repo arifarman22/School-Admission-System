@@ -9,7 +9,7 @@ public interface IClassService
 
     Task<IReadOnlyList<ClassResponse>> ListAsync(CancellationToken cancellationToken);
 
-    Task<ClassResponse> GetAsync(Guid classId, CancellationToken cancellationToken);
+    Task<ClassResponse> GetAsync(int classId, CancellationToken cancellationToken);
 }
 
 public sealed class ClassService(IDatabaseServiceClient databaseService) : IClassService
@@ -26,7 +26,7 @@ public sealed class ClassService(IDatabaseServiceClient databaseService) : IClas
         return classes.Select(ToResponse).ToList();
     }
 
-    public async Task<ClassResponse> GetAsync(Guid classId, CancellationToken cancellationToken) =>
+    public async Task<ClassResponse> GetAsync(int classId, CancellationToken cancellationToken) =>
         ToResponse(await databaseService.GetClassAsync(classId, cancellationToken));
 
     private static ClassResponse ToResponse(InternalClass c) =>

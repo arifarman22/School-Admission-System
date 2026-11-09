@@ -80,7 +80,7 @@ describe.skipIf(!url || !dedicated)(
       return { status: res.status, code: json.error?.code, data: json.data };
     }
 
-    const reserve = (classId: string, studentId: string, i: number) =>
+    const reserve = (classId: number, studentId: string, i: number) =>
       call(instance(i), '/holds', { classId, studentId });
     const confirm = (holdId: string, studentId: string, i: number) =>
       call(instance(i), `/holds/${holdId}/confirm`, { studentId });
@@ -98,14 +98,14 @@ describe.skipIf(!url || !dedicated)(
     }
 
     async function createClass(label: string, totalSeats: number) {
-      const { rows } = await pool.query<{ id: string }>(
+      const { rows } = await pool.query<{ id: number }>(
         'INSERT INTO admission_classes (name, total_seats) VALUES ($1, $2) RETURNING id',
         [`${tag} ${label}`, totalSeats],
       );
       return rows[0]!.id;
     }
 
-    async function sample(classId: string): Promise<Sample> {
+    async function sample(classId: number): Promise<Sample> {
       const { rows } = await pool.query<Sample>(
         `SELECT total_seats AS total, held_seats AS held, confirmed_seats AS confirmed,
                 available_seats AS available
@@ -115,10 +115,13 @@ describe.skipIf(!url || !dedicated)(
       return rows[0]!;
     }
 
-    async function apiSample(classId: string, i: number): Promise<Sample> {
+    async function apiSample(classId: number, i: number): Promise<Sample> {
       const res = await fetch(`${instance(i)}/classes/${classId}`, {
         headers: { [INTERNAL_API_KEY_HEADER]: API_KEY },
       });
+      if (!res.ok) {
+        throw new Error(`GET /classes/${classId} returned ${res.status}: ${await res.text()}`);
+      }
       const { data } = (await res.json()) as {
         data: {
           totalSeats: number;
@@ -135,7 +138,7 @@ describe.skipIf(!url || !dedicated)(
       };
     }
 
-    async function duringBurst<T>(classId: string, burst: Promise<T>) {
+    async function duringBurst<T>(classId: number, burst: Promise<T>) {
       const samples: Sample[] = [];
       let done = false;
       const watcher = (async () => {
@@ -162,7 +165,7 @@ describe.skipIf(!url || !dedicated)(
       }
     }
 
-    async function rowCounts(classId: string) {
+    async function rowCounts(classId: number) {
       const { rows } = await pool.query<{ held: number; confirmed: number; students: number }>(
         `SELECT count(*) FILTER (WHERE status = 'HELD' AND expires_at > now())::int AS held,
                 count(*) FILTER (WHERE status = 'CONFIRMED')::int AS confirmed,
@@ -197,7 +200,14 @@ describe.skipIf(!url || !dedicated)(
           },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
-        child.stdout?.on('data', (d: Buffer) => (output += d.toString()));
+        child.stdout?.on('data', (d: Buffer) => {
+          output += d.toString();
+          for (const line of d.toString().split('\n')) {
+            if (line.includes('"err"') && !line.includes('ServiceBusyError')) {
+              process.stderr.write(`[service ${i}] ${line}\n`);
+            }
+          }
+        });
         child.stderr?.on('data', (d: Buffer) => (output += d.toString()));
         children.push(child);
         const base = `http://127.0.0.1:${port}`;
@@ -432,6 +442,27 @@ describe.skipIf(!url || !dedicated)(
         expect(counts.confirmed).toBe(3);
         expect(counts.held).toBe(created);
         expect(await sample(classId)).toMatchObject({ available: 2 - created });
+      }
+    }, 120_000);
+
+    it(`one student confirming several classes at once is admitted exactly once, ${ROUNDS} rounds`, async () => {
+      for (let round = 0; round < ROUNDS; round++) {
+        const classIds = await Promise.all(
+          [0, 1, 2, 3].map((i) => createClass(`one-admission-${round}-${i}`, 3)),
+        );
+        const studentId = nextStudent();
+        const held: HoldDto[] = [];
+        for (const [i, classId] of classIds.entries()) {
+          held.push((await reserve(classId, studentId, i)).data!);
+        }
+
+        const results = await Promise.all(held.map((h, i) => confirm(h.holdId, studentId, i)));
+        expect(tally(results), `round ${round}`).toEqual({ OK: 1, ALREADY_ADMITTED: 3 });
+        const { rows } = await pool.query(
+          `SELECT count(*)::int AS n FROM admission_holds WHERE student_id = $1 AND status = 'CONFIRMED'`,
+          [studentId],
+        );
+        expect(rows[0].n).toBe(1);
       }
     }, 120_000);
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AdmissionStatus } from '../generated/prisma/enums.js';
+import { classIdSchema } from './classes.js';
 
 export const studentIdSchema = z
   .string({
@@ -9,7 +10,7 @@ export const studentIdSchema = z
   .regex(/^[0-9]{17}$/, 'studentId must be exactly 17 digits');
 
 export const createHoldBodySchema = z.strictObject({
-  classId: z.uuid('classId must be a UUID'),
+  classId: classIdSchema,
   studentId: studentIdSchema,
 });
 
@@ -31,7 +32,7 @@ export type CreateHoldInput = z.output<typeof createHoldBodySchema>;
 
 export interface HoldDto {
   holdId: string;
-  classId: string;
+  classId: number;
   studentId: string;
   status: AdmissionStatus;
   createdAt: string;

@@ -40,7 +40,7 @@ describe('POST /classes', () => {
     expect(res.headers.location).toBe(`/classes/${res.body.data.id}`);
     expect(res.body).toEqual({
       data: {
-        id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        id: 1,
         name: 'Class 3',
         totalSeats: 40,
         heldSeats: 0,
@@ -219,17 +219,25 @@ describe('GET /classes', () => {
 describe('GET /classes/:classId', () => {
   it('validates the class id before calling the service', async () => {
     const { get } = setup();
-    const res = await get('/classes/not-a-uuid');
-    expect(res.status).toBe(400);
-    expect(res.body.error.details).toContainEqual({
+    for (const bad of ['abc', '0', '-1', '1.5', '01', '3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01']) {
+      const res = await get(`/classes/${bad}`);
+      expect(res.status, bad).toBe(400);
+      expect(res.body.error.details).toContainEqual({
+        path: 'classId',
+        message: 'classId must be a positive whole number',
+      });
+    }
+    const tooLarge = await get('/classes/9999999999');
+    expect(tooLarge.status).toBe(400);
+    expect(tooLarge.body.error.details).toContainEqual({
       path: 'classId',
-      message: 'classId must be a UUID',
+      message: 'classId is too large',
     });
   });
 
   it('returns 404 NOT_FOUND for an unknown class', async () => {
     const { get } = setup();
-    const res = await get('/classes/7f2d6cf0-6e49-4b6d-bb33-64f3ed23d0b7');
+    const res = await get('/classes/987654');
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
   });

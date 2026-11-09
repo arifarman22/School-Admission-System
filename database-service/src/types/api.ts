@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'CLASS_NAME_TAKEN'
   | 'SEATS_FULL'
   | 'DUPLICATE_APPLICATION'
+  | 'ALREADY_ADMITTED'
   | 'HOLD_NOT_OWNED'
   | 'HOLD_EXPIRED'
   | 'HOLD_NOT_ACTIVE'

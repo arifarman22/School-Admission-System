@@ -8,9 +8,9 @@ public interface IDatabaseServiceClient
 
     Task<IReadOnlyList<InternalClass>> ListClassesAsync(CancellationToken cancellationToken = default);
 
-    Task<InternalClass> GetClassAsync(Guid classId, CancellationToken cancellationToken = default);
+    Task<InternalClass> GetClassAsync(int classId, CancellationToken cancellationToken = default);
 
-    Task<InternalHold> CreateHoldAsync(Guid classId, string studentId, CancellationToken cancellationToken = default);
+    Task<InternalHold> CreateHoldAsync(int classId, string studentId, CancellationToken cancellationToken = default);
 
     Task<InternalHold> GetHoldAsync(Guid holdId, CancellationToken cancellationToken = default);
 

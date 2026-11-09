@@ -31,17 +31,23 @@ export class ConflictError extends AppError {
 }
 
 export class SeatsFullError extends ConflictError {
-  constructor(classId: string) {
+  constructor(classId: number) {
     super('SEATS_FULL', `Class ${classId} has no available seats`);
   }
 }
 
 export class DuplicateApplicationError extends ConflictError {
-  constructor(classId: string) {
+  constructor(classId: number) {
     super(
       'DUPLICATE_APPLICATION',
       `Student already has an active application for class ${classId}`,
     );
+  }
+}
+
+export class AlreadyAdmittedError extends ConflictError {
+  constructor() {
+    super('ALREADY_ADMITTED', 'This student already has a confirmed admission in another class');
   }
 }
 

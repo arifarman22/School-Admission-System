@@ -9,7 +9,7 @@ public sealed record InternalError(string Code, string Message, IReadOnlyList<In
 public sealed record InternalValidationIssue(string Path, string Message);
 
 public sealed record InternalClass(
-    string Id,
+    int Id,
     string Name,
     int TotalSeats,
     int HeldSeats,
@@ -19,7 +19,7 @@ public sealed record InternalClass(
 
 public sealed record InternalHold(
     string HoldId,
-    string ClassId,
+    int ClassId,
     string StudentId,
     string Status,
     DateTimeOffset CreatedAt,
@@ -28,7 +28,7 @@ public sealed record InternalHold(
 
 public sealed record InternalStudentHold(
     string HoldId,
-    string ClassId,
+    int ClassId,
     string ClassName,
     string StudentId,
     string Status,

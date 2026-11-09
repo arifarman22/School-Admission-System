@@ -6,6 +6,7 @@ public sealed class CreateClassRequest
 {
     public const int MaxNameInputLength = 200;
     public const int MaxTotalSeats = 10_000;
+    public const string ClassIdMessage = "classId must be a positive whole number";
 
     [Required(ErrorMessage = "name is required")]
     [StringLength(MaxNameInputLength, ErrorMessage = "name is too long")]
@@ -16,10 +17,10 @@ public sealed class CreateClassRequest
     public int? TotalSeats { get; init; }
 }
 
-public sealed record ClassCreatedResponse(string Id, string Name, int TotalSeats);
+public sealed record ClassCreatedResponse(int Id, string Name, int TotalSeats);
 
 public sealed record ClassResponse(
-    string Id,
+    int Id,
     string Name,
     int TotalSeats,
     int HeldSeats,

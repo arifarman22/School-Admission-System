@@ -7,7 +7,7 @@ namespace SchoolAdmission.Tests;
 
 public sealed class ClassEndpointTests : IDisposable
 {
-    private const string ClassId = "3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01";
+    private const int ClassId = 42;
 
     private readonly ApiFactory _factory = new();
     private readonly HttpClient _client;
@@ -20,7 +20,7 @@ public sealed class ClassEndpointTests : IDisposable
         _factory.Dispose();
     }
 
-    private static object InternalClass(string id = ClassId, string name = "Class 6 - Morning Shift") => new
+    private static object InternalClass(int id = ClassId, string name = "Class 6 - Morning Shift") => new
     {
         id,
         name,
@@ -42,7 +42,7 @@ public sealed class ClassEndpointTests : IDisposable
         Assert.Equal($"/classes/{ClassId}", response.Headers.Location?.AbsolutePath);
         var body = await JsonAssert.ReadJsonAsync(response);
         JsonAssert.HasExactProperties(body, "id", "name", "totalSeats");
-        Assert.Equal(ClassId, body.GetProperty("id").GetString());
+        Assert.Equal(ClassId, body.GetProperty("id").GetInt32());
         Assert.Equal("Class 6 - Morning Shift", body.GetProperty("name").GetString());
         Assert.Equal(120, body.GetProperty("totalSeats").GetInt32());
 
@@ -162,10 +162,16 @@ public sealed class ClassEndpointTests : IDisposable
         await JsonAssert.ReadProblemAsync(response, 404, "NOT_FOUND");
     }
 
-    [Fact]
-    public async Task GetClass_MalformedId_Returns400()
+    [Theory]
+    [InlineData("c_123")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("1.5")]
+    [InlineData("3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01")]
+    [InlineData("99999999999")]
+    public async Task GetClass_MalformedId_Returns400(string classId)
     {
-        var response = await _client.GetAsync("/classes/c_123");
+        var response = await _client.GetAsync($"/classes/{classId}");
 
         await JsonAssert.ReadProblemAsync(response, 400, "VALIDATION_ERROR");
         Assert.Empty(_factory.Database.Requests);

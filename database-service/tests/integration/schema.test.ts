@@ -54,8 +54,8 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
     }
   }
 
-  async function createClass(db: pg.PoolClient, name: string, seats = 10): Promise<string> {
-    const { rows } = await db.query<{ id: string }>(
+  async function createClass(db: pg.PoolClient, name: string, seats = 10): Promise<number> {
+    const { rows } = await db.query<{ id: number }>(
       'INSERT INTO admission_classes (name, total_seats) VALUES ($1, $2) RETURNING id',
       [name, seats],
     );
@@ -67,7 +67,7 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
 
   async function createHold(
     db: pg.PoolClient,
-    classId: string,
+    classId: number,
     studentId: string,
     status = 'HELD',
   ): Promise<string> {
@@ -89,6 +89,8 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
     expect(rows.map((r) => r.migration_name)).toEqual([
       expect.stringMatching(/_init_admission_schema$/),
       expect.stringMatching(/_admission_constraints$/),
+      expect.stringMatching(/_numeric_class_ids$/),
+      expect.stringMatching(/_one_admission_per_student$/),
     ]);
   });
 
@@ -151,11 +153,12 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
 
   it('fills id and created_at from the database', () =>
     inTx(async (db) => {
-      const { rows } = await db.query<{ id: string; created_at: Date; db_now: Date }>(
+      const { rows } = await db.query<{ id: number; created_at: Date; db_now: Date }>(
         `INSERT INTO admission_classes (name, total_seats) VALUES ('Defaults', 5)
          RETURNING id, created_at, now() AS db_now`,
       );
-      expect(rows[0]!.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(Number.isInteger(rows[0]!.id)).toBe(true);
+      expect(rows[0]!.id).toBeGreaterThan(0);
       expect(
         Math.abs(rows[0]!.created_at.getTime() - rows[0]!.db_now.getTime()),
       ).toBeLessThanOrEqual(1);
@@ -188,7 +191,7 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
         db,
         '23503',
         INSERT_HOLD,
-        ['00000000-0000-0000-0000-000000000000', STUDENT_A, 'HELD', null],
+        [2_000_000_000, STUDENT_A, 'HELD', null],
         'admission_holds_class_id_fkey',
       );
 

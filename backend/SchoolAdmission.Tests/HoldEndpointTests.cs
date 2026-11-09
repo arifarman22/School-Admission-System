@@ -5,7 +5,7 @@ namespace SchoolAdmission.Tests;
 
 public sealed class HoldEndpointTests : IDisposable
 {
-    private const string ClassId = "3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01";
+    private const int ClassId = 42;
     private const string HoldId = "8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a";
     private const string StudentId = "20152691234567890";
     private const string OtherStudentId = "20152691234567891";
@@ -55,13 +55,13 @@ public sealed class HoldEndpointTests : IDisposable
         var body = await JsonAssert.ReadJsonAsync(response);
         JsonAssert.HasExactProperties(body, "holdId", "classId", "studentId", "status", "expiresAt");
         Assert.Equal(HoldId, body.GetProperty("holdId").GetString());
-        Assert.Equal(ClassId, body.GetProperty("classId").GetString());
+        Assert.Equal(ClassId, body.GetProperty("classId").GetInt32());
         Assert.Equal(StudentId, body.GetProperty("studentId").GetString());
         Assert.Equal("HELD", body.GetProperty("status").GetString());
         Assert.Equal("2026-11-01T04:10:00Z", body.GetProperty("expiresAt").GetString());
 
         var forwarded = Assert.Single(_factory.Database.Requests);
-        Assert.Equal(ClassId, forwarded.Json.GetProperty("classId").GetString());
+        Assert.Equal(ClassId, forwarded.Json.GetProperty("classId").GetInt32());
         Assert.Equal(StudentId, forwarded.Json.GetProperty("studentId").GetString());
     }
 
@@ -112,6 +112,7 @@ public sealed class HoldEndpointTests : IDisposable
     [Theory]
     [InlineData(HttpStatusCode.Conflict, "SEATS_FULL", 409)]
     [InlineData(HttpStatusCode.Conflict, "DUPLICATE_APPLICATION", 409)]
+    [InlineData(HttpStatusCode.Conflict, "ALREADY_ADMITTED", 409)]
     [InlineData(HttpStatusCode.NotFound, "NOT_FOUND", 404)]
     public async Task CreateHold_TranslatesDomainErrors(HttpStatusCode internalStatus, string code, int publicStatus)
     {
@@ -182,6 +183,7 @@ public sealed class HoldEndpointTests : IDisposable
     [Theory]
     [InlineData(HttpStatusCode.Forbidden, "HOLD_NOT_OWNED", 403)]
     [InlineData(HttpStatusCode.Conflict, "HOLD_EXPIRED", 409)]
+    [InlineData(HttpStatusCode.Conflict, "ALREADY_ADMITTED", 409)]
     [InlineData(HttpStatusCode.Conflict, "HOLD_NOT_ACTIVE", 409)]
     [InlineData(HttpStatusCode.NotFound, "NOT_FOUND", 404)]
     public async Task ConfirmHold_TranslatesDomainErrors(HttpStatusCode internalStatus, string code, int publicStatus)

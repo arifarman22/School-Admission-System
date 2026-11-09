@@ -101,7 +101,7 @@ public sealed class PlatformTests : IDisposable
     [Fact]
     public async Task Cors_AllowsFrontendOriginWithStudentHeader()
     {
-        var request = new HttpRequestMessage(HttpMethod.Options, "/classes/3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01/holds");
+        var request = new HttpRequestMessage(HttpMethod.Options, "/classes/1/holds");
         request.Headers.Add("Origin", ApiFactory.AllowedOrigin);
         request.Headers.Add("Access-Control-Request-Method", "POST");
         request.Headers.Add("Access-Control-Request-Headers", "x-student-id");

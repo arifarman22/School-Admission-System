@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace SchoolAdmission.Api.Clients;
@@ -36,14 +37,14 @@ public sealed class DatabaseServiceClient(HttpClient httpClient, ILogger<Databas
     public async Task<IReadOnlyList<InternalClass>> ListClassesAsync(CancellationToken cancellationToken = default) =>
         await SendAsync<List<InternalClass>>(HttpMethod.Get, "classes", null, cancellationToken);
 
-    public Task<InternalClass> GetClassAsync(Guid classId, CancellationToken cancellationToken = default) =>
-        SendAsync<InternalClass>(HttpMethod.Get, $"classes/{classId:D}", null, cancellationToken);
+    public Task<InternalClass> GetClassAsync(int classId, CancellationToken cancellationToken = default) =>
+        SendAsync<InternalClass>(HttpMethod.Get, $"classes/{classId.ToString(CultureInfo.InvariantCulture)}", null, cancellationToken);
 
-    public Task<InternalHold> CreateHoldAsync(Guid classId, string studentId, CancellationToken cancellationToken = default) =>
+    public Task<InternalHold> CreateHoldAsync(int classId, string studentId, CancellationToken cancellationToken = default) =>
         SendAsync<InternalHold>(
             HttpMethod.Post,
             "holds",
-            new { classId = classId.ToString("D"), studentId },
+            new { classId, studentId },
             cancellationToken);
 
     public Task<InternalHold> GetHoldAsync(Guid holdId, CancellationToken cancellationToken = default) =>

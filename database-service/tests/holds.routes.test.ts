@@ -11,7 +11,7 @@ import type { HoldDto } from '../src/types/holds.js';
 import { buildTestApp, StubHoldService, TEST_API_KEY } from './helpers.js';
 
 const HOLD_ID = '7f2d6cf0-6e49-4b6d-bb33-64f3ed23d0b7';
-const CLASS_ID = '696fbc0b-006d-4e6a-b6d2-d1b244ea7cb5';
+const CLASS_ID = 42;
 const STUDENT_ID = '20240000000000001';
 
 const auth = <T extends request.Test>(req: T) => req.set(INTERNAL_API_KEY_HEADER, TEST_API_KEY);
@@ -108,8 +108,18 @@ describe('POST /holds', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.details).toContainEqual({
       path: 'classId',
-      message: 'classId must be a UUID',
+      message: 'classId must be a number',
     });
+
+    for (const [classId, message] of [
+      ['42', 'classId must be a number'],
+      [0, 'classId must be a positive number'],
+      [1.5, 'classId must be a whole number'],
+    ] as const) {
+      const bad = await auth(request(app).post('/holds')).send({ classId, studentId: STUDENT_ID });
+      expect(bad.status, String(classId)).toBe(400);
+      expect(bad.body.error.details).toContainEqual({ path: 'classId', message });
+    }
   });
 
   it('does not accept caller-controlled hold state', async () => {

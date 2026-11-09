@@ -1,6 +1,7 @@
 import { Prisma, type AdmissionHold, type PrismaClient } from '../generated/prisma/client.js';
 import type { CreateHoldInput, HoldDto, StudentHoldDto } from '../types/holds.js';
 import {
+  AlreadyAdmittedError,
   AppError,
   DuplicateApplicationError,
   HoldAlreadyConfirmedError,
@@ -75,7 +76,7 @@ function isContention(err: unknown): boolean {
 
 export async function lockClassForSeatChange(
   tx: Tx,
-  classId: string,
+  classId: number,
   lockTimeoutMs: number,
 ): Promise<{ lockedClass: LockedClass; dbNow: Date }> {
   await tx.$queryRaw`SELECT set_config('lock_timeout', ${`${lockTimeoutMs}ms`}, true)`;
@@ -83,7 +84,7 @@ export async function lockClassForSeatChange(
   const locked = await tx.$queryRaw<LockedClass[]>`
     SELECT total_seats AS "totalSeats"
     FROM admission_classes
-    WHERE id = ${classId}::uuid
+    WHERE id = ${classId}::int
     FOR UPDATE`;
   const lockedClass = locked[0];
   if (!lockedClass) {
@@ -96,7 +97,7 @@ export async function lockClassForSeatChange(
            UPDATE admission_holds h
            SET status = 'EXPIRED'
            FROM now
-           WHERE h.class_id = ${classId}::uuid
+           WHERE h.class_id = ${classId}::int
              AND h.status = 'HELD'
              AND h.expires_at <= now.ts
            RETURNING h.id
@@ -105,6 +106,15 @@ export async function lockClassForSeatChange(
     FROM now`;
 
   return { lockedClass, dbNow: clock!.dbNow };
+}
+
+async function hasConfirmedAdmission(tx: Tx, studentId: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ found: number }[]>`
+    SELECT 1 AS "found"
+    FROM admission_holds
+    WHERE student_id = ${studentId} AND status = 'CONFIRMED'
+    LIMIT 1`;
+  return rows.length > 0;
 }
 
 export class PrismaHoldService implements HoldService {
@@ -155,11 +165,14 @@ export class PrismaHoldService implements HoldService {
                  count(*) FILTER (WHERE status = 'CONFIRMED')::int   AS "confirmedSeats",
                  coalesce(bool_or(student_id = ${studentId}), false) AS "studentHasActiveHold"
           FROM admission_holds
-          WHERE class_id = ${classId}::uuid
+          WHERE class_id = ${classId}::int
             AND (status = 'CONFIRMED' OR (status = 'HELD' AND expires_at > ${dbNow}::timestamptz))`;
 
         if (occupancy!.studentHasActiveHold) {
           throw new DuplicateApplicationError(classId);
+        }
+        if (await hasConfirmedAdmission(tx, studentId)) {
+          throw new AlreadyAdmittedError();
         }
         if (occupancy!.heldSeats + occupancy!.confirmedSeats >= lockedClass.totalSeats) {
           throw new SeatsFullError(classId);
@@ -184,11 +197,12 @@ export class PrismaHoldService implements HoldService {
     holdId: string,
     studentId: string,
     apply: (tx: Tx, hold: AdmissionHold, dbNow: Date) => Promise<AdmissionHold>,
+    onUniqueViolation?: () => AppError,
   ): Promise<HoldDto> {
     try {
       return await this.runSeatChange(async (tx) => {
-        const [owner] = await tx.$queryRaw<{ classId: string }[]>`
-          SELECT class_id::text AS "classId" FROM admission_holds WHERE id = ${holdId}::uuid`;
+        const [owner] = await tx.$queryRaw<{ classId: number }[]>`
+          SELECT class_id AS "classId" FROM admission_holds WHERE id = ${holdId}::uuid`;
         if (!owner) {
           throw new NotFoundError(`Hold ${holdId} not found`);
         }
@@ -201,7 +215,7 @@ export class PrismaHoldService implements HoldService {
 
         const [hold] = await tx.$queryRaw<AdmissionHold[]>`
           SELECT id::text            AS "id",
-                 class_id::text      AS "classId",
+                 class_id            AS "classId",
                  student_id          AS "studentId",
                  status::text        AS "status",
                  created_at          AS "createdAt",
@@ -217,26 +231,34 @@ export class PrismaHoldService implements HoldService {
         return toHoldDto(await apply(tx, hold!, dbNow));
       });
     } catch (err) {
-      this.translate(err);
+      this.translate(err, onUniqueViolation);
     }
   }
 
   confirmHold(holdId: string, studentId: string): Promise<HoldDto> {
-    return this.withOwnedHold(holdId, studentId, async (tx, hold, dbNow) => {
-      switch (hold.status) {
-        case 'CONFIRMED':
-          return hold;
-        case 'CANCELLED':
-          throw new HoldNotActiveError(holdId);
-        case 'EXPIRED':
-          throw new HoldExpiredError(holdId);
-        case 'HELD':
-          return tx.admissionHold.update({
-            where: { id: holdId },
-            data: { status: 'CONFIRMED', confirmedAt: dbNow },
-          });
-      }
-    });
+    return this.withOwnedHold(
+      holdId,
+      studentId,
+      async (tx, hold, dbNow) => {
+        switch (hold.status) {
+          case 'CONFIRMED':
+            return hold;
+          case 'CANCELLED':
+            throw new HoldNotActiveError(holdId);
+          case 'EXPIRED':
+            throw new HoldExpiredError(holdId);
+          case 'HELD':
+            if (await hasConfirmedAdmission(tx, studentId)) {
+              throw new AlreadyAdmittedError();
+            }
+            return tx.admissionHold.update({
+              where: { id: holdId },
+              data: { status: 'CONFIRMED', confirmedAt: dbNow },
+            });
+        }
+      },
+      () => new AlreadyAdmittedError(),
+    );
   }
 
   cancelHold(holdId: string, studentId: string): Promise<HoldDto> {
@@ -260,7 +282,7 @@ export class PrismaHoldService implements HoldService {
   async getHold(holdId: string): Promise<HoldDto> {
     const [hold] = await this.prisma.$queryRaw<AdmissionHold[]>`
       SELECT id::text            AS "id",
-             class_id::text      AS "classId",
+             class_id            AS "classId",
              student_id          AS "studentId",
              CASE WHEN status = 'HELD' AND expires_at <= now() THEN 'EXPIRED'
                   ELSE status::text END AS "status",
@@ -278,7 +300,7 @@ export class PrismaHoldService implements HoldService {
   async listStudentHolds(studentId: string): Promise<StudentHoldDto[]> {
     const rows = await this.prisma.$queryRaw<StudentHoldRow[]>`
       SELECT h.id::text          AS "id",
-             h.class_id::text    AS "classId",
+             h.class_id          AS "classId",
              c.name              AS "className",
              h.student_id        AS "studentId",
              CASE WHEN h.status = 'HELD' AND h.expires_at <= now() THEN 'EXPIRED'

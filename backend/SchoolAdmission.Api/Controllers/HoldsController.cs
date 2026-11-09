@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using SchoolAdmission.Api.Contracts;
 using SchoolAdmission.Api.Filters;
@@ -13,7 +14,8 @@ public sealed class HoldsController(IHoldService holds) : ControllerBase
     [ProducesResponseType<HoldCreatedResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<HoldCreatedResponse>> Create(Guid classId, CancellationToken cancellationToken)
+    public async Task<ActionResult<HoldCreatedResponse>> Create(
+        [Range(1, int.MaxValue, ErrorMessage = CreateClassRequest.ClassIdMessage)] int classId, CancellationToken cancellationToken)
     {
         var studentId = RequireStudentIdAttribute.GetStudentId(HttpContext);
         var hold = await holds.CreateAsync(classId, studentId, cancellationToken);

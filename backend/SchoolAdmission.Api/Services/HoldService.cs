@@ -5,7 +5,7 @@ namespace SchoolAdmission.Api.Services;
 
 public interface IHoldService
 {
-    Task<HoldCreatedResponse> CreateAsync(Guid classId, string studentId, CancellationToken cancellationToken);
+    Task<HoldCreatedResponse> CreateAsync(int classId, string studentId, CancellationToken cancellationToken);
 
     Task<HoldResponse> GetAsync(Guid holdId, CancellationToken cancellationToken);
 
@@ -18,7 +18,7 @@ public interface IHoldService
 
 public sealed class HoldService(IDatabaseServiceClient databaseService) : IHoldService
 {
-    public async Task<HoldCreatedResponse> CreateAsync(Guid classId, string studentId, CancellationToken cancellationToken)
+    public async Task<HoldCreatedResponse> CreateAsync(int classId, string studentId, CancellationToken cancellationToken)
     {
         var hold = await databaseService.CreateHoldAsync(classId, studentId, cancellationToken);
         return new HoldCreatedResponse(hold.HoldId, hold.ClassId, hold.StudentId, hold.Status, hold.ExpiresAt.UtcDateTime);

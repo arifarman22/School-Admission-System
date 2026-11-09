@@ -6,7 +6,7 @@ namespace SchoolAdmission.Tests;
 
 public sealed class EndpointMatrixTests : IDisposable
 {
-    private const string ClassId = "3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01";
+    private const int ClassId = 42;
     private const string HoldId = "8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a";
     private const string StudentId = "20152691234567890";
 

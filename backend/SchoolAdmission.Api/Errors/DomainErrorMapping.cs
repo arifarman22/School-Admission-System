@@ -11,6 +11,7 @@ public static class DomainErrorMapping
         [ErrorCodes.ClassNameTaken] = new(StatusCodes.Status409Conflict, "Class name already exists", true),
         [ErrorCodes.SeatsFull] = new(StatusCodes.Status409Conflict, "No seats available", true),
         [ErrorCodes.DuplicateApplication] = new(StatusCodes.Status409Conflict, "Active application already exists", true),
+        [ErrorCodes.AlreadyAdmitted] = new(StatusCodes.Status409Conflict, "Student already admitted to another class", true),
         [ErrorCodes.HoldExpired] = new(StatusCodes.Status409Conflict, "Hold has expired", true),
         [ErrorCodes.HoldNotActive] = new(StatusCodes.Status409Conflict, "Hold is no longer active", true),
         [ErrorCodes.HoldAlreadyConfirmed] = new(StatusCodes.Status409Conflict, "Hold is already confirmed", true),

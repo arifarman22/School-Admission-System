@@ -5,11 +5,11 @@ import { ConflictError, NotFoundError } from './errors.js';
 export interface ClassService {
   createClass(input: CreateClassInput): Promise<ClassDto>;
   listClasses(): Promise<ClassDto[]>;
-  getClass(classId: string): Promise<ClassDto>;
+  getClass(classId: number): Promise<ClassDto>;
 }
 
 interface ClassAvailabilityRow {
-  id: string;
+  id: number;
   name: string;
   totalSeats: number;
   heldSeats: number;
@@ -58,7 +58,7 @@ export class PrismaClassService implements ClassService {
 
   async listClasses(): Promise<ClassDto[]> {
     const rows = await this.prisma.$queryRaw<ClassAvailabilityRow[]>`
-      SELECT c.id::text            AS "id",
+      SELECT c.id                  AS "id",
              c.name                AS "name",
              c.total_seats         AS "totalSeats",
              v.held_seats          AS "heldSeats",
@@ -71,9 +71,9 @@ export class PrismaClassService implements ClassService {
     return rows.map(toClassDto);
   }
 
-  async getClass(classId: string): Promise<ClassDto> {
+  async getClass(classId: number): Promise<ClassDto> {
     const [row] = await this.prisma.$queryRaw<ClassAvailabilityRow[]>`
-      SELECT c.id::text            AS "id",
+      SELECT c.id                  AS "id",
              c.name                AS "name",
              c.total_seats         AS "totalSeats",
              v.held_seats          AS "heldSeats",
@@ -82,7 +82,7 @@ export class PrismaClassService implements ClassService {
              c.created_at          AS "createdAt"
       FROM admission_classes c
       JOIN admission_class_availability v ON v.class_id = c.id
-      WHERE c.id = ${classId}::uuid`;
+      WHERE c.id = ${classId}::int`;
     if (!row) {
       throw new NotFoundError(`Class ${classId} not found`);
     }

@@ -41,6 +41,7 @@ describe.skipIf(!url)('classes API against PostgreSQL', () => {
     const res = await post({ name: `${prefix} Class A`, totalSeats: 30 });
 
     expect(res.status).toBe(201);
+    expect(Number.isInteger(res.body.data.id)).toBe(true);
     expect(res.body.data).toMatchObject({
       name: `${prefix} Class A`,
       totalSeats: 30,
@@ -68,7 +69,7 @@ describe.skipIf(!url)('classes API against PostgreSQL', () => {
       expect.objectContaining({ name: `${prefix} Class B`, totalSeats: 12, availableSeats: 12 }),
     ]);
     for (const c of ours) {
-      expect(typeof c.id).toBe('string');
+      expect(Number.isInteger(c.id) && c.id > 0).toBe(true);
       expect(Number.isNaN(Date.parse(c.createdAt))).toBe(false);
     }
   });

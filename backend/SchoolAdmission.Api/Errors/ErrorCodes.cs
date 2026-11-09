@@ -10,6 +10,7 @@ public static class ErrorCodes
     public const string ClassNameTaken = "CLASS_NAME_TAKEN";
     public const string SeatsFull = "SEATS_FULL";
     public const string DuplicateApplication = "DUPLICATE_APPLICATION";
+    public const string AlreadyAdmitted = "ALREADY_ADMITTED";
     public const string HoldNotOwned = "HOLD_NOT_OWNED";
     public const string HoldExpired = "HOLD_EXPIRED";
     public const string HoldNotActive = "HOLD_NOT_ACTIVE";

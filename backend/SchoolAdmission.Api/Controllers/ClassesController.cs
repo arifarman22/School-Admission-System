@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using SchoolAdmission.Api.Contracts;
 using SchoolAdmission.Api.Services;
@@ -28,7 +29,9 @@ public sealed class ClassesController(IClassService classes) : ControllerBase
 
     [HttpGet("{classId}")]
     [ProducesResponseType<ClassResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ClassResponse>> Get(Guid classId, CancellationToken cancellationToken) =>
+    public async Task<ActionResult<ClassResponse>> Get(
+        [Range(1, int.MaxValue, ErrorMessage = CreateClassRequest.ClassIdMessage)] int classId, CancellationToken cancellationToken) =>
         Ok(await classes.GetAsync(classId, cancellationToken));
 }

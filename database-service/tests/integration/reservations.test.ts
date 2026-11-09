@@ -64,7 +64,7 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
   }
 
   async function reserve(
-    classId: string,
+    classId: number,
     studentId: string,
     instance: Instance = instances[studentCounter % instances.length]!,
   ): Promise<ReserveResult> {
@@ -77,7 +77,7 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
     return { status: res.status, code: body.error?.code, data: body.data };
   }
 
-  function reserveConcurrently(requests: { classId: string; studentId: string }[]) {
+  function reserveConcurrently(requests: { classId: number; studentId: string }[]) {
     return Promise.all(
       requests.map((r, i) => reserve(r.classId, r.studentId, instances[i % instances.length])),
     );
@@ -105,7 +105,7 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   }
 
-  async function insertExpiredHold(classId: string, studentId: string): Promise<string> {
+  async function insertExpiredHold(classId: number, studentId: string): Promise<string> {
     const { rows } = await pool.query<{ id: string }>(
       `INSERT INTO admission_holds (class_id, student_id, created_at, expires_at)
        VALUES ($1, $2, now() - interval '20 minutes', now() - interval '10 minutes')
@@ -115,15 +115,15 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
     return rows[0]!.id;
   }
 
-  async function createClass(label: string, totalSeats: number): Promise<string> {
-    const { rows } = await pool.query<{ id: string }>(
+  async function createClass(label: string, totalSeats: number): Promise<number> {
+    const { rows } = await pool.query<{ id: number }>(
       'INSERT INTO admission_classes (name, total_seats) VALUES ($1, $2) RETURNING id',
       [`${runTag} ${label}`, totalSeats],
     );
     return rows[0]!.id;
   }
 
-  async function activeCounts(classId: string) {
+  async function activeCounts(classId: number) {
     const { rows } = await pool.query<{
       held: number;
       confirmed: number;
@@ -332,7 +332,7 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
   });
 
   it('returns NOT_FOUND for a class that does not exist', async () => {
-    const result = await reserve(randomUUID(), nextStudentId());
+    const result = await reserve(2_000_000_000, nextStudentId());
     expect(result).toMatchObject({ status: 404, code: 'NOT_FOUND' });
   });
 

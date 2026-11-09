@@ -49,6 +49,7 @@ public sealed class RealStackFactory : WebApplicationFactory<Program>
     }
 }
 
+[Collection(nameof(StartupIsolation))]
 public sealed class RealStackTests : IDisposable
 {
     private static int _studentCounter;
@@ -69,11 +70,11 @@ public sealed class RealStackTests : IDisposable
     private static string NextStudent() =>
         StudentPrefix + Interlocked.Increment(ref _studentCounter).ToString("D13", System.Globalization.CultureInfo.InvariantCulture);
 
-    private async Task<string> CreateClassAsync(string label, int seats)
+    private async Task<int> CreateClassAsync(string label, int seats)
     {
         var response = await _client.PostAsJsonAsync("/classes", new { name = $"{_tag} {label}", totalSeats = seats });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await JsonAssert.ReadJsonAsync(response)).GetProperty("id").GetString()!;
+        return (await JsonAssert.ReadJsonAsync(response)).GetProperty("id").GetInt32();
     }
 
     private Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, string? studentId)
@@ -95,10 +96,10 @@ public sealed class RealStackTests : IDisposable
         return ((int)response.StatusCode, code, body);
     }
 
-    private Task<HttpResponseMessage> ApplyAsync(string classId, string studentId) =>
+    private Task<HttpResponseMessage> ApplyAsync(int classId, string studentId) =>
         SendAsync(HttpMethod.Post, $"/classes/{classId}/holds", studentId);
 
-    private async Task<JsonElement> GetClassAsync(string classId)
+    private async Task<JsonElement> GetClassAsync(int classId)
     {
         var response = await _client.GetAsync($"/classes/{classId}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -119,11 +120,11 @@ public sealed class RealStackTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await JsonAssert.ReadJsonAsync(create);
         JsonAssert.HasExactProperties(created, "id", "name", "totalSeats");
-        var classId = created.GetProperty("id").GetString()!;
+        var classId = created.GetProperty("id").GetInt32();
         Assert.Equal($"/classes/{classId}", create.Headers.Location?.AbsolutePath);
 
         var list = await JsonAssert.ReadJsonAsync(await _client.GetAsync("/classes"));
-        var listed = Assert.Single(list.EnumerateArray(), c => c.GetProperty("id").GetString() == classId);
+        var listed = Assert.Single(list.EnumerateArray(), c => c.GetProperty("id").GetInt32() == classId);
         JsonAssert.HasExactProperties(listed, "id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
 
         var one = await GetClassAsync(classId);
@@ -154,9 +155,13 @@ public sealed class RealStackTests : IDisposable
         JsonAssert.HasExactProperties(confirmed, "holdId", "status");
         Assert.Equal("CONFIRMED", confirmed.GetProperty("status").GetString());
 
-        var second = await JsonAssert.ReadJsonAsync(await ApplyAsync(await CreateClassAsync("lifecycle-cancel", 1), student));
+        var otherClassId = await CreateClassAsync("lifecycle-cancel", 1);
+        await JsonAssert.ReadProblemAsync(await ApplyAsync(otherClassId, student), 409, "ALREADY_ADMITTED");
+
+        var otherStudent = NextStudent();
+        var second = await JsonAssert.ReadJsonAsync(await ApplyAsync(otherClassId, otherStudent));
         var secondId = second.GetProperty("holdId").GetString()!;
-        var cancel = await SendAsync(HttpMethod.Delete, $"/holds/{secondId}", student);
+        var cancel = await SendAsync(HttpMethod.Delete, $"/holds/{secondId}", otherStudent);
         Assert.Equal(HttpStatusCode.NoContent, cancel.StatusCode);
         Assert.Empty(await cancel.Content.ReadAsByteArrayAsync());
         var afterCancel = await JsonAssert.ReadJsonAsync(await _client.GetAsync($"/holds/{secondId}"));
@@ -178,8 +183,8 @@ public sealed class RealStackTests : IDisposable
         await JsonAssert.ReadProblemAsync(duplicate, 409, "CLASS_NAME_TAKEN");
 
         await JsonAssert.ReadProblemAsync(await _client.PostAsJsonAsync("/classes", new { name = $"{_tag} zero", totalSeats = 0 }), 400, "VALIDATION_ERROR");
-        await JsonAssert.ReadProblemAsync(await _client.GetAsync($"/classes/{Guid.NewGuid()}"), 404, "NOT_FOUND");
-        await JsonAssert.ReadProblemAsync(await ApplyAsync(Guid.NewGuid().ToString(), owner), 404, "NOT_FOUND");
+        await JsonAssert.ReadProblemAsync(await _client.GetAsync("/classes/2000000000"), 404, "NOT_FOUND");
+        await JsonAssert.ReadProblemAsync(await ApplyAsync(2_000_000_000, owner), 404, "NOT_FOUND");
         await JsonAssert.ReadProblemAsync(await SendAsync(HttpMethod.Post, $"/classes/{classId}/holds", null), 401, "STUDENT_ID_REQUIRED");
         await JsonAssert.ReadProblemAsync(await SendAsync(HttpMethod.Post, $"/classes/{classId}/holds", "123"), 400, "VALIDATION_ERROR");
 
@@ -195,6 +200,27 @@ public sealed class RealStackTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, $"/holds/{holdId}/confirm", owner)).StatusCode);
         await JsonAssert.ReadProblemAsync(await SendAsync(HttpMethod.Delete, $"/holds/{holdId}", owner), 409, "HOLD_ALREADY_CONFIRMED");
         await JsonAssert.ReadProblemAsync(await SendAsync(HttpMethod.Post, $"/holds/{Guid.NewGuid()}/confirm", owner), 404, "NOT_FOUND");
+    }
+
+    [RealStackFact]
+    public async Task OneStudent_CanBeAdmittedToOnlyOneClass_EvenWhenConfirmingAtOnce()
+    {
+        var student = NextStudent();
+        var holdIds = new List<string>();
+        for (var i = 0; i < 4; i++)
+        {
+            var classId = await CreateClassAsync($"one-admission-{i}", 2);
+            holdIds.Add((await JsonAssert.ReadJsonAsync(await ApplyAsync(classId, student))).GetProperty("holdId").GetString()!);
+        }
+
+        var responses = await Task.WhenAll(holdIds.Select(id => SendAsync(HttpMethod.Post, $"/holds/{id}/confirm", student)));
+        var results = await Task.WhenAll(responses.Select(ResultAsync));
+
+        Assert.Equal(new Dictionary<string, int> { ["200"] = 1, ["ALREADY_ADMITTED"] = 3 }, Tally(results));
+        var mine = await JsonAssert.ReadJsonAsync(await SendAsync(HttpMethod.Get, "/me/holds", student));
+        Assert.Single(mine.EnumerateArray(), h => h.GetProperty("status").GetString() == "CONFIRMED");
+        var otherClass = await CreateClassAsync("one-admission-after", 2);
+        await JsonAssert.ReadProblemAsync(await ApplyAsync(otherClass, student), 409, "ALREADY_ADMITTED");
     }
 
     [RealStackFact]
@@ -306,7 +332,7 @@ public sealed class RealStackTests : IDisposable
         using var factory = new RealStackFactory($"http://127.0.0.1:{port}", "closed-port-internal-key-123456");
         using var client = factory.CreateClient();
         const string student = "20152691234567890";
-        var classId = Guid.NewGuid();
+        const int classId = 7;
         var holdId = Guid.NewGuid();
 
         var requests = new Func<HttpRequestMessage>[]

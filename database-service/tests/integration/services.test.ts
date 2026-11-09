@@ -8,6 +8,7 @@ import { createPrismaClient, type PrismaClient } from '../../src/db/prisma.js';
 import { INTERNAL_API_KEY_HEADER } from '../../src/middleware/internal-auth.js';
 import { PrismaClassService } from '../../src/services/class.service.js';
 import {
+  AlreadyAdmittedError,
   ConflictError,
   DuplicateApplicationError,
   HoldExpiredError,
@@ -62,7 +63,7 @@ describe.skipIf(!url || !dedicated)('Prisma services against PostgreSQL', () => 
     (await pool.query('SELECT status FROM admission_holds WHERE id = $1', [holdId])).rows[0]
       .status as string;
 
-  const expiredHold = async (classId: string, studentId: string) =>
+  const expiredHold = async (classId: number, studentId: string) =>
     (
       await pool.query<{ id: string }>(
         `INSERT INTO admission_holds (class_id, student_id, created_at, expires_at)
@@ -220,5 +221,56 @@ describe.skipIf(!url || !dedicated)('Prisma services against PostgreSQL', () => 
       HoldNotOwnedError,
     );
     expect(await statusOf(hold.holdId)).toBe('HELD');
+  });
+
+  it('12. a student can confirm admission in only one class', async () => {
+    const first = await newClass('one-admission-a', 5);
+    const second = await newClass('one-admission-b', 5);
+    const studentId = nextStudent();
+    const holdA = await holds.createHold({ classId: first.id, studentId });
+    const holdB = await holds.createHold({ classId: second.id, studentId });
+
+    await holds.confirmHold(holdA.holdId, studentId);
+    const error = await holds.confirmHold(holdB.holdId, studentId).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AlreadyAdmittedError);
+    expect((error as AlreadyAdmittedError).code).toBe('ALREADY_ADMITTED');
+    expect(await statusOf(holdB.holdId)).toBe('HELD');
+
+    expect((await holds.cancelHold(holdB.holdId, studentId)).status).toBe('CANCELLED');
+    expect(await classes.getClass(second.id)).toMatchObject({ heldSeats: 0, availableSeats: 5 });
+  });
+
+  it('13. an admitted student cannot take a seat in another class', async () => {
+    const first = await newClass('admitted-a', 5);
+    const other = await newClass('admitted-b', 5);
+    const studentId = nextStudent();
+    const hold = await holds.createHold({ classId: first.id, studentId });
+    await holds.confirmHold(hold.holdId, studentId);
+
+    await expect(holds.createHold({ classId: other.id, studentId })).rejects.toBeInstanceOf(
+      AlreadyAdmittedError,
+    );
+    expect(await classes.getClass(other.id)).toMatchObject({ heldSeats: 0, availableSeats: 5 });
+    expect((await holds.createHold({ classId: other.id, studentId: nextStudent() })).status).toBe(
+      'HELD',
+    );
+  });
+
+  it('14. the database itself allows only one CONFIRMED row per student', async () => {
+    const a = await newClass('db-one-a', 5);
+    const b = await newClass('db-one-b', 5);
+    const studentId = nextStudent();
+    await pool.query(
+      `INSERT INTO admission_holds (class_id, student_id, status, expires_at, confirmed_at)
+       VALUES ($1, $2, 'CONFIRMED', now() + interval '10 minutes', now())`,
+      [a.id, studentId],
+    );
+    await expect(
+      pool.query(
+        `INSERT INTO admission_holds (class_id, student_id, status, expires_at, confirmed_at)
+         VALUES ($1, $2, 'CONFIRMED', now() + interval '10 minutes', now())`,
+        [b.id, studentId],
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
   });
 });

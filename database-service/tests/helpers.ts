@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { pino } from 'pino';
 import { createApp, type AppDependencies } from '../src/app.js';
 import type { ClassService } from '../src/services/class.service.js';
@@ -53,6 +52,7 @@ export const healthyDb: DatabaseProbe = { ping: async () => {} };
 export class InMemoryClassService implements ClassService {
   readonly classes: ClassDto[] = [];
   createCalls = 0;
+  private nextId = 1;
 
   async createClass(input: CreateClassInput): Promise<ClassDto> {
     this.createCalls++;
@@ -60,7 +60,7 @@ export class InMemoryClassService implements ClassService {
       throw new ConflictError('CLASS_NAME_TAKEN', `A class named "${input.name}" already exists`);
     }
     const created: ClassDto = {
-      id: randomUUID(),
+      id: this.nextId++,
       name: input.name,
       totalSeats: input.totalSeats,
       heldSeats: 0,
@@ -76,7 +76,7 @@ export class InMemoryClassService implements ClassService {
     return [...this.classes].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  async getClass(classId: string): Promise<ClassDto> {
+  async getClass(classId: number): Promise<ClassDto> {
     const found = this.classes.find((c) => c.id === classId);
     if (!found) throw new NotFoundError(`Class ${classId} not found`);
     return found;
