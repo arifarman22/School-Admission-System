@@ -502,7 +502,12 @@ describe.skipIf(!url || !dedicated)('seat reservation engine against PostgreSQL'
       expect(cancel.status).toBe(200);
       const created = others.filter((r) => r.status === 201).length;
       expect(created).toBeLessThanOrEqual(1);
-      expect((await activeCounts(classId)).held).toBe(created);
+      expect(others.filter((r) => r.code === 'SEATS_FULL')).toHaveLength(20 - created);
+      expect(await activeCounts(classId)).toMatchObject({ held: created, available: 1 - created });
+      const { rows } = await pool.query('SELECT status FROM admission_holds WHERE id = $1', [
+        hold.holdId,
+      ]);
+      expect(rows[0].status).toBe('CANCELLED');
     });
 
     it('getHold and listStudentHolds report expiry by database time and include the class name', async () => {

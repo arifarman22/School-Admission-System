@@ -121,6 +121,19 @@ export class PrismaHoldService implements HoldService {
     });
   }
 
+  private async runSeatChange<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    const outcome = await this.runSeatTransaction(async (tx) => {
+      try {
+        return { ok: true as const, value: await fn(tx) };
+      } catch (err) {
+        if (err instanceof AppError) return { ok: false as const, rejection: err };
+        throw err;
+      }
+    });
+    if (!outcome.ok) throw outcome.rejection;
+    return outcome.value;
+  }
+
   private translate(err: unknown, onUniqueViolation?: () => AppError): never {
     if (err instanceof AppError) throw err;
     if (onUniqueViolation && isUniqueViolation(err)) throw onUniqueViolation();
@@ -130,7 +143,7 @@ export class PrismaHoldService implements HoldService {
 
   async createHold({ classId, studentId }: CreateHoldInput): Promise<HoldDto> {
     try {
-      return await this.runSeatTransaction(async (tx) => {
+      return await this.runSeatChange(async (tx) => {
         const { lockedClass, dbNow } = await lockClassForSeatChange(
           tx,
           classId,
@@ -173,7 +186,7 @@ export class PrismaHoldService implements HoldService {
     apply: (tx: Tx, hold: AdmissionHold, dbNow: Date) => Promise<AdmissionHold>,
   ): Promise<HoldDto> {
     try {
-      return await this.runSeatTransaction(async (tx) => {
+      return await this.runSeatChange(async (tx) => {
         const [owner] = await tx.$queryRaw<{ classId: string }[]>`
           SELECT class_id::text AS "classId" FROM admission_holds WHERE id = ${holdId}::uuid`;
         if (!owner) {
