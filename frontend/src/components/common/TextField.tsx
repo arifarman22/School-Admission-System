@@ -1,10 +1,11 @@
-import { useId, type InputHTMLAttributes } from 'react';
+import { useId, type InputHTMLAttributes, type Ref } from 'react';
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   hint?: string;
   error?: string | null;
   hideLabel?: boolean;
+  ref?: Ref<HTMLInputElement>;
 }
 
 export function TextField({
@@ -14,6 +15,7 @@ export function TextField({
   hideLabel = false,
   className = '',
   id,
+  ref,
   ...rest
 }: TextFieldProps) {
   const generatedId = useId();
@@ -29,6 +31,7 @@ export function TextField({
         {label}
       </label>
       <input
+        ref={ref}
         id={inputId}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}

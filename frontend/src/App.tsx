@@ -17,7 +17,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to={routes.classes} replace /> },
       { path: 'classes', element: <ClassListPage /> },
-      { path: 'classes/:classId/apply', element: <AdmissionPage /> },
+      { path: 'applications/:holdId', element: <AdmissionPage /> },
       { path: 'me/applications', element: <MyApplicationsPage /> },
       { path: 'admin/classes/new', element: <CreateClassPage /> },
       { path: '*', element: <NotFoundPage /> },

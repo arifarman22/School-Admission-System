@@ -7,6 +7,7 @@ import {
   studentIdError,
 } from '../../utils/studentId';
 import { Button } from '../common/Button';
+import { STUDENT_ID_INPUT_ID } from '../../utils/routes';
 import { TextField } from '../common/TextField';
 
 export function StudentIdentityBar() {
@@ -54,6 +55,7 @@ export function StudentIdentityBar() {
             className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-start"
           >
             <TextField
+              id={STUDENT_ID_INPUT_ID}
               label="Birth registration number"
               hideLabel
               value={draft}

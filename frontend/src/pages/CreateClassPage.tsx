@@ -1,6 +1,6 @@
+import { CreateClassForm } from '../components/admission/CreateClassForm';
 import { Card } from '../components/common/Card';
 import { PageHeader } from '../components/common/PageHeader';
-import { EmptyState } from '../components/common/States';
 
 export function CreateClassPage() {
   return (
@@ -8,13 +8,10 @@ export function CreateClassPage() {
       <PageHeader
         eyebrow="Admin"
         title="Create class"
-        description="Add a class and set its total number of seats."
+        description="Add a class and set its total number of seats. Students can apply as soon as it is created."
       />
-      <Card>
-        <EmptyState
-          title="Create class"
-          description="This page will contain the class creation form."
-        />
+      <Card className="max-w-2xl p-5 sm:p-6">
+        <CreateClassForm />
       </Card>
     </section>
   );

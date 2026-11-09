@@ -3,6 +3,9 @@ import { cancelHold, confirmHold, createHold, getHold, listMyHolds } from '../ap
 import { queryKeys } from './queryKeys';
 import { useStudentId } from './useStudentId';
 
+export const HELD_REFRESH_MS = 10_000;
+export const MY_HOLDS_REFRESH_MS = 15_000;
+
 function requireStudentId(studentId: string | null): string {
   if (!studentId) {
     throw new Error('Enter your birth registration number first.');
@@ -14,8 +17,8 @@ function useInvalidateAdmissionData() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.classes.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.holds.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.classes.all, refetchType: 'all' }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.holds.all, refetchType: 'all' }),
     ]);
 }
 
@@ -24,6 +27,7 @@ export function useHold(holdId: string | undefined) {
     queryKey: queryKeys.holds.detail(holdId ?? ''),
     queryFn: ({ signal }) => getHold(holdId as string, signal),
     enabled: Boolean(holdId),
+    refetchInterval: (query) => (query.state.data?.status === 'HELD' ? HELD_REFRESH_MS : false),
   });
 }
 
@@ -33,6 +37,7 @@ export function useMyHolds() {
     queryKey: queryKeys.holds.mine(studentId ?? ''),
     queryFn: ({ signal }) => listMyHolds(requireStudentId(studentId), signal),
     enabled: Boolean(studentId),
+    refetchInterval: MY_HOLDS_REFRESH_MS,
   });
 }
 
