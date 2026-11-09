@@ -21,10 +21,10 @@ export function useClasses({ live = false }: { live?: boolean } = {}) {
   });
 }
 
-export function useClass(classId: string | undefined) {
+export function useClass(classId: number | undefined) {
   return useQuery({
-    queryKey: queryKeys.classes.detail(classId ?? ''),
-    queryFn: ({ signal }) => getClass(classId as string, signal),
+    queryKey: queryKeys.classes.detail(classId ?? 0),
+    queryFn: ({ signal }) => getClass(classId as number, signal),
     enabled: Boolean(classId),
     refetchOnWindowFocus: 'always',
   });

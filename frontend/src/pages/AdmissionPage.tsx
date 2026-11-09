@@ -1,6 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { ApiError } from '../api/client';
+import { ApplicationProgress } from '../components/admission/ApplicationProgress';
 import { ExpiryCountdown } from '../components/admission/ExpiryCountdown';
 import { HoldStatusBadge } from '../components/admission/HoldStatusBadge';
 import { RequireStudentId } from '../components/admission/RequireStudentId';
@@ -60,6 +61,10 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
   const ownsHold = myHolds.data ? myHolds.data.some((h) => h.holdId === hold.holdId) : null;
   const busy = confirm.isPending || cancel.isPending;
   const actionable = hold.status === 'HELD' && ownsHold !== false;
+  const admittedElsewhere = myHolds.data?.find(
+    (h) => h.status === 'CONFIRMED' && h.holdId !== hold.holdId,
+  );
+  const confirmBlocked = hold.status === 'HELD' && admittedElsewhere !== undefined;
   const awaitingExpiry = hold.status === 'HELD' && elapsedFor === hold.expiresAt;
 
   const onElapsed = useCallback(() => {
@@ -73,7 +78,7 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
   };
 
   const onConfirm = () => {
-    if (!actionable || awaitingExpiry || busy) return;
+    if (!actionable || awaitingExpiry || confirmBlocked || busy) return;
     setOutcome(null);
     confirm.mutate(hold.holdId, {
       onSuccess: (result) =>
@@ -115,6 +120,13 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
         </Alert>
       )}
 
+      {confirmBlocked && (
+        <Alert tone="warning" title={`Already admitted to ${admittedElsewhere!.className}`}>
+          A student can be admitted to only one class, so this application cannot be confirmed.
+          Cancel it to give the seat to another student.
+        </Alert>
+      )}
+
       {ownsHold === false && (
         <Alert tone="warning" title="Not your application">
           This application is not linked to the student ID entered above, so it cannot be confirmed
@@ -132,11 +144,16 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
           </div>
           <p className="mt-2 text-sm text-slate-600">{statusExplanation(hold.status)}</p>
 
+          <div className="mt-5">
+            <ApplicationProgress status={hold.status} />
+          </div>
+
           <dl className="mt-4 divide-y divide-slate-100 border-t border-slate-100">
             <DetailRow label="Status">
               <span className="font-semibold">{hold.status}</span>
             </DetailRow>
-            <DetailRow label="Class">{className ?? hold.classId}</DetailRow>
+            <DetailRow label="Class">{className ?? `Class #${hold.classId}`}</DetailRow>
+            <DetailRow label="Class number">#{hold.classId}</DetailRow>
             <DetailRow label="Seats available">
               {classQuery.data
                 ? `${classQuery.data.availableSeats} of ${classQuery.data.totalSeats}`
@@ -167,10 +184,17 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
             </div>
           )}
 
+          {hold.status === 'HELD' && ownsHold !== false && !confirmBlocked && (
+            <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+              <span className="font-semibold">Next step:</span> pay the admission fee, then press
+              Confirm Admission before the timer reaches zero.
+            </p>
+          )}
+
           <div className="flex flex-col gap-2">
             <Button
               onClick={onConfirm}
-              disabled={!actionable || awaitingExpiry || busy}
+              disabled={!actionable || awaitingExpiry || confirmBlocked || busy}
               loading={confirm.isPending}
             >
               {hold.status === 'CONFIRMED'
@@ -229,7 +253,7 @@ export function AdmissionPage() {
       <PageHeader
         eyebrow="Student Portal"
         title="Admission details"
-        description="Every status shown here comes directly from the admission service."
+        description="Follow your application here. The status always comes straight from the school’s admission system."
       />
       <RequireStudentId>
         {holdQuery.isPending ? (

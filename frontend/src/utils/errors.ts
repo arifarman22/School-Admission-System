@@ -3,6 +3,8 @@ import { ApiError } from '../api/client';
 const FRIENDLY_MESSAGES: Record<string, string> = {
   SEATS_FULL: 'This class has no seats left.',
   DUPLICATE_APPLICATION: 'You already have an active application for this class.',
+  ALREADY_ADMITTED:
+    'This student already has a confirmed admission in another class. A student can be admitted to only one class.',
   HOLD_EXPIRED: 'Your seat hold has expired. Please apply again.',
   HOLD_NOT_ACTIVE: 'This application is no longer active.',
   HOLD_ALREADY_CONFIRMED: 'This admission is already confirmed.',

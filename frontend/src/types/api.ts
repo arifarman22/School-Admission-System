@@ -6,13 +6,13 @@ export interface CreateClassRequest {
 }
 
 export interface ClassCreated {
-  id: string;
+  id: number;
   name: string;
   totalSeats: number;
 }
 
 export interface AdmissionClass {
-  id: string;
+  id: number;
   name: string;
   totalSeats: number;
   heldSeats: number;
@@ -22,7 +22,7 @@ export interface AdmissionClass {
 
 export interface HoldCreated {
   holdId: string;
-  classId: string;
+  classId: number;
   studentId: string;
   status: HoldStatus;
   expiresAt: string;
@@ -30,7 +30,7 @@ export interface HoldCreated {
 
 export interface Hold {
   holdId: string;
-  classId: string;
+  classId: number;
   status: HoldStatus;
   expiresAt: string;
 }
@@ -42,7 +42,7 @@ export interface HoldConfirmed {
 
 export interface StudentHold {
   holdId: string;
-  classId: string;
+  classId: number;
   className: string;
   status: HoldStatus;
   expiresAt: string;
@@ -55,6 +55,7 @@ export type ApiErrorCode =
   | 'CLASS_NAME_TAKEN'
   | 'SEATS_FULL'
   | 'DUPLICATE_APPLICATION'
+  | 'ALREADY_ADMITTED'
   | 'HOLD_NOT_OWNED'
   | 'HOLD_EXPIRED'
   | 'HOLD_NOT_ACTIVE'

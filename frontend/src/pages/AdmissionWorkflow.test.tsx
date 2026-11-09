@@ -1,16 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { StudentIdentityBar } from '../components/admission/StudentIdentityBar';
+import { appRoutes } from '../appRoutes';
 import { json, mockApi, problem, renderRoutes } from '../test/utils';
 import type { AdmissionClass, Hold, HoldCreated, StudentHold } from '../types/api';
 import { STUDENT_ID_STORAGE_KEY } from '../utils/studentId';
-import { AdmissionPage } from './AdmissionPage';
-import { ClassListPage } from './ClassListPage';
-import { MyApplicationsPage } from './MyApplicationsPage';
 
 const STUDENT = '20152691234567890';
-const CLASS_ID = '3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01';
+const CLASS_ID = 6;
 const HOLD_ID = '8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a';
 
 const admissionClass: AdmissionClass = {
@@ -47,36 +44,6 @@ const mine = (status: StudentHold['status']): StudentHold => ({
   expiresAt: inTenMinutes(),
 });
 
-const appRoutes = [
-  {
-    path: '/classes',
-    element: (
-      <>
-        <StudentIdentityBar />
-        <ClassListPage />
-      </>
-    ),
-  },
-  {
-    path: '/applications/:holdId',
-    element: (
-      <>
-        <StudentIdentityBar />
-        <AdmissionPage />
-      </>
-    ),
-  },
-  {
-    path: '/me/applications',
-    element: (
-      <>
-        <StudentIdentityBar />
-        <MyApplicationsPage />
-      </>
-    ),
-  },
-];
-
 const detailHandlers = (holdResponses: (() => Response)[], myHolds = [mine('HELD')]) => ({
   [`GET /holds/${HOLD_ID}`]: holdResponses,
   [`GET /classes/${CLASS_ID}`]: () => json(200, admissionClass),
@@ -87,18 +54,19 @@ describe('student identity', () => {
   it.each([
     ['2015269123456789', 'Must be exactly 17 digits (you entered 16).'],
     ['201526912345678901', 'Must be exactly 17 digits (you entered 18).'],
-    ['2015-2691-23456789', 'Use digits 0–9 only, with no spaces or dashes.'],
-    ['2015269123456789a', 'Use digits 0–9 only, with no spaces or dashes.'],
+    ['2015-2691-23456789', 'Must be exactly 17 digits (you entered 16).'],
+    ['2015269123456789a', 'Use digits 0–9 only.'],
   ])('rejects %s', async (value, message) => {
-    mockApi({ 'GET /classes': () => json(200, []) });
+    const { calls } = mockApi({ 'GET /classes': () => json(200, []) });
     renderRoutes(appRoutes, { initialPath: '/classes' });
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Birth registration number'), value);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBeNull();
+    expect(calls).toHaveLength(0);
   });
 
   it('persists a valid 17-digit ID locally and can clear it', async () => {
@@ -106,33 +74,33 @@ describe('student identity', () => {
     renderRoutes(appRoutes, { initialPath: '/classes' });
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText('Birth registration number'), STUDENT);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.type(screen.getByLabelText('Birth registration number'), '2015 2691 2345-67890');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBe(STUDENT);
-    expect(screen.getByText('2015 •••• •••• 7890')).toBeInTheDocument();
+    expect(await screen.findByText('2015 •••• •••• 7890')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    await user.click(screen.getByRole('button', { name: /clear/i }));
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBeNull();
     expect(screen.getByLabelText('Birth registration number')).toBeInTheDocument();
   });
 });
 
 describe('apply', () => {
-  it('requires a valid student ID before applying', async () => {
+  it('shows the welcome screen and loads nothing until a student ID is entered', async () => {
     const { calls } = mockApi({ 'GET /classes': () => json(200, [admissionClass]) });
     renderRoutes(appRoutes, { initialPath: '/classes' });
     const user = userEvent.setup();
 
-    await user.click(
-      await screen.findByRole('button', { name: `Apply now for ${admissionClass.name}` }),
-    );
-
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      /enter your 17-digit birth registration number/i,
-    );
+    expect(screen.getByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Birth registration number')).toHaveFocus();
-    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+    expect(calls).toHaveLength(0);
+
+    await user.type(screen.getByLabelText('Birth registration number'), STUDENT);
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(
+      await screen.findByRole('button', { name: `Apply now for ${admissionClass.name}` }),
+    ).toBeEnabled();
   });
 
   it('creates a hold with X-Student-Id and opens admission details', async () => {
@@ -153,8 +121,10 @@ describe('apply', () => {
     expect(post.path).toBe(`/classes/${CLASS_ID}/holds`);
     expect(post.headers['x-student-id']).toBe(STUDENT);
 
-    expect(await screen.findByRole('heading', { name: admissionClass.name })).toBeInTheDocument();
-    expect(screen.getByText(HOLD_ID)).toBeInTheDocument();
+    expect(await screen.findByText(HOLD_ID)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 2, name: admissionClass.name }),
+    ).toBeInTheDocument();
     expect(screen.getAllByText('HELD').length).toBeGreaterThan(0);
     expect(screen.getByRole('timer')).toHaveTextContent(/^(09|10):\d\d$/);
     expect(screen.getByText('Expires')).toBeInTheDocument();
@@ -318,7 +288,7 @@ describe('my applications', () => {
   it('lists current and historical applications with links, sending X-Student-Id', async () => {
     const history: StudentHold = {
       holdId: '11111111-2222-4333-8444-555555555555',
-      classId: '22222222-3333-4444-8555-666666666666',
+      classId: 7,
       className: 'Class 7 - Day Shift',
       status: 'EXPIRED',
       expiresAt: '2026-11-01T04:10:00Z',
@@ -359,7 +329,7 @@ describe('my applications', () => {
     const { calls } = mockApi({});
     renderRoutes(appRoutes, { initialPath: '/me/applications' });
 
-    expect(screen.getByText('Student identity required')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
     expect(calls).toHaveLength(0);
   });
 });

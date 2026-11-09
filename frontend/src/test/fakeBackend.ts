@@ -8,17 +8,17 @@ export const HOLD_SECONDS = 600;
 export const STUDENT = '20152691234567890';
 export const OTHER_STUDENT = '20152691234567891';
 const STUDENT_ID = /^[0-9]{17}$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CLASS_ID = /^[1-9][0-9]{0,9}$/;
 
 interface ClassRow {
-  id: string;
+  id: number;
   name: string;
   totalSeats: number;
 }
 
 interface HoldRow {
   holdId: string;
-  classId: string;
+  classId: number;
   studentId: string;
   status: HoldStatus;
   createdAt: number;
@@ -57,7 +57,8 @@ export function problem(
 }
 
 export function createFakeBackend() {
-  const classes = new Map<string, ClassRow>();
+  const classes = new Map<number, ClassRow>();
+  let nextClassId = 1;
   const holds = new Map<string, HoldRow>();
   const requests: RecordedRequest[] = [];
 
@@ -75,6 +76,9 @@ export function createFakeBackend() {
       availableSeats: c.totalSeats - heldSeats - confirmedSeats,
     };
   };
+
+  const admitted = (studentId: string) =>
+    [...holds.values()].some((h) => h.studentId === studentId && h.status === 'CONFIRMED');
 
   const publicHold = (h: HoldRow) => ({
     holdId: h.holdId,
@@ -128,14 +132,15 @@ export function createFakeBackend() {
       if ([...classes.values()].some((c) => c.name === name)) {
         return problem(409, 'CLASS_NAME_TAKEN', `A class named "${name}" already exists`);
       }
-      const row = { id: uuid(1), name, totalSeats: seats as number };
+      const row = { id: nextClassId++, name, totalSeats: seats as number };
       classes.set(row.id, row);
       return HttpResponse.json(row, { status: 201, headers: { Location: `/classes/${row.id}` } });
     }),
 
     http.get(url('/classes/:classId'), ({ params }) => {
-      const id = String(params.classId);
-      if (!UUID.test(id)) return problem(400, 'VALIDATION_ERROR', 'Invalid class id');
+      const raw = String(params.classId);
+      if (!CLASS_ID.test(raw)) return problem(400, 'VALIDATION_ERROR', 'Invalid class id');
+      const id = Number(raw);
       const row = classes.get(id);
       return row
         ? HttpResponse.json(availability(row))
@@ -145,7 +150,7 @@ export function createFakeBackend() {
     http.post(url('/classes/:classId/holds'), ({ request, params }) => {
       const who = student(request);
       if (who.error) return who.error;
-      const row = classes.get(String(params.classId));
+      const row = classes.get(Number(params.classId));
       if (!row) return problem(404, 'NOT_FOUND', `Class ${String(params.classId)} not found`);
       const active = [...holds.values()].some(
         (h) =>
@@ -159,6 +164,9 @@ export function createFakeBackend() {
           'DUPLICATE_APPLICATION',
           'Student already has an active application for this class',
         );
+      }
+      if (admitted(who.id)) {
+        return problem(409, 'ALREADY_ADMITTED', 'Student already has a confirmed admission');
       }
       if (availability(row).availableSeats <= 0) {
         return problem(409, 'SEATS_FULL', `Class ${row.id} has no available seats`);
@@ -197,6 +205,9 @@ export function createFakeBackend() {
       }
       if (status === 'CANCELLED')
         return problem(409, 'HOLD_NOT_ACTIVE', `Hold ${hold.holdId} has been cancelled`);
+      if (admitted(hold.studentId)) {
+        return problem(409, 'ALREADY_ADMITTED', 'Student already has a confirmed admission');
+      }
       hold.status = 'CONFIRMED';
       return HttpResponse.json({ holdId: hold.holdId, status: 'CONFIRMED' });
     }),
@@ -230,12 +241,12 @@ export function createFakeBackend() {
     requests,
     url,
     addClass(name: string, totalSeats: number) {
-      const row = { id: uuid(1), name, totalSeats };
+      const row = { id: nextClassId++, name, totalSeats };
       classes.set(row.id, row);
       return row;
     },
     addHold(
-      classId: string,
+      classId: number,
       studentId: string,
       overrides: Partial<Pick<HoldRow, 'status' | 'expiresAt'>> = {},
     ) {
@@ -252,7 +263,7 @@ export function createFakeBackend() {
       holds.set(hold.holdId, hold);
       return hold;
     },
-    fill(classId: string, count: number, status: HoldStatus = 'CONFIRMED') {
+    fill(classId: number, count: number, status: HoldStatus = 'CONFIRMED') {
       for (let i = 0; i < count; i++) {
         this.addHold(
           classId,
@@ -265,7 +276,7 @@ export function createFakeBackend() {
       const hold = holds.get(holdId);
       return hold ? effective(hold) : undefined;
     },
-    classAvailability(classId: string) {
+    classAvailability(classId: number) {
       return availability(classes.get(classId)!);
     },
   };

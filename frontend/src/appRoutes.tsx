@@ -1,4 +1,5 @@
 import { Navigate, type RouteObject } from 'react-router';
+import { StudentGate } from './components/admission/StudentGate';
 import { AppLayout } from './components/layout/AppLayout';
 import { AdmissionPage } from './pages/AdmissionPage';
 import { ClassListPage } from './pages/ClassListPage';
@@ -15,9 +16,14 @@ export const appRoutes: RouteObject[] = [
     errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: <Navigate to={routes.classes} replace /> },
-      { path: 'classes', element: <ClassListPage /> },
-      { path: 'applications/:holdId', element: <AdmissionPage /> },
-      { path: 'me/applications', element: <MyApplicationsPage /> },
+      {
+        element: <StudentGate />,
+        children: [
+          { path: 'classes', element: <ClassListPage /> },
+          { path: 'applications/:holdId', element: <AdmissionPage /> },
+          { path: 'me/applications', element: <MyApplicationsPage /> },
+        ],
+      },
       { path: 'admin/classes/new', element: <CreateClassPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

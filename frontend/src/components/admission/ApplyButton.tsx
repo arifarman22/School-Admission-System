@@ -8,12 +8,12 @@ import { routes, STUDENT_ID_INPUT_ID } from '../../utils/routes';
 import { Button } from '../common/Button';
 
 interface ApplyButtonProps {
-  classId: string;
+  classId: number;
   className: string;
   full?: boolean;
 }
 
-function ExistingApplicationLink({ classId }: { classId: string }) {
+function ExistingApplicationLink({ classId }: { classId: number }) {
   const myHolds = useMyHolds();
   const active = myHolds.data?.find(
     (h) => h.classId === classId && (h.status === 'HELD' || h.status === 'CONFIRMED'),
@@ -31,6 +31,8 @@ function ExistingApplicationLink({ classId }: { classId: string }) {
 export function ApplyButton({ classId, className, full = false }: ApplyButtonProps) {
   const { studentId } = useStudentId();
   const createHold = useCreateHold();
+  const myHolds = useMyHolds();
+  const admission = myHolds.data?.find((h) => h.status === 'CONFIRMED');
   const navigate = useNavigate();
   const [needsIdentity, setNeedsIdentity] = useState(false);
 
@@ -53,7 +55,20 @@ export function ApplyButton({ classId, className, full = false }: ApplyButtonPro
 
   return (
     <div className="space-y-2">
-      {full ? (
+      {admission ? (
+        <p
+          className={`rounded-lg border px-3 py-2 text-center text-sm font-medium ${
+            admission.classId === classId
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-slate-200 bg-slate-50 text-slate-600'
+          }`}
+          role="note"
+        >
+          {admission.classId === classId
+            ? 'You are admitted to this class.'
+            : `Already admitted to ${admission.className}. A student can join only one class.`}
+        </p>
+      ) : full ? (
         <p
           className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-center text-sm font-medium text-rose-700"
           role="note"
@@ -87,6 +102,8 @@ export function ApplyButton({ classId, className, full = false }: ApplyButtonPro
           }`}
         >
           {code === 'SEATS_FULL' && 'Seats are unavailable: this class just filled up.'}
+          {code === 'ALREADY_ADMITTED' &&
+            'This student already has a confirmed admission. A student can be admitted to only one class.'}
           {code === 'DUPLICATE_APPLICATION' && (
             <>
               You already have an active application for this class.{' '}
@@ -96,6 +113,7 @@ export function ApplyButton({ classId, className, full = false }: ApplyButtonPro
           {conflict &&
             code !== 'SEATS_FULL' &&
             code !== 'DUPLICATE_APPLICATION' &&
+            code !== 'ALREADY_ADMITTED' &&
             'Seats are unavailable or you already have an active application for this class.'}
           {!conflict && getErrorMessage(error)}
         </div>

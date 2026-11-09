@@ -1,8 +1,8 @@
 import type { Hold, HoldConfirmed, HoldCreated, StudentHold } from '../types/api';
 import { apiRequest } from './client';
 
-export function createHold(classId: string, studentId: string): Promise<HoldCreated> {
-  return apiRequest<HoldCreated>(`/classes/${encodeURIComponent(classId)}/holds`, {
+export function createHold(classId: number, studentId: string): Promise<HoldCreated> {
+  return apiRequest<HoldCreated>(`/classes/${classId}/holds`, {
     method: 'POST',
     studentId,
   });

@@ -14,17 +14,26 @@ export function AppLayout({ children }: { children?: ReactNode }) {
         Skip to content
       </a>
 
-      <StudentIdentityBar />
-
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="relative mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link to={routes.classes} className="flex items-center gap-3">
-            <img src="/favicon.svg" alt="" className="size-8" />
-            <span className="text-lg font-semibold tracking-tight">School Admission</span>
+            <span className="flex size-9 items-center justify-center rounded-lg bg-indigo-600 text-white">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="size-5">
+                <path d="M12 3 1 9l11 6 9-4.91V17h2V9L12 3Zm-6.82 9.16L5 15.5C5 17.43 8.13 19 12 19s7-1.57 7-3.5l-.18-3.34L12 15.83l-6.82-3.67Z" />
+              </svg>
+            </span>
+            <span className="leading-tight">
+              <span className="block text-base font-semibold tracking-tight text-slate-900">
+                School Admission
+              </span>
+              <span className="block text-xs text-slate-500">Online admission portal</span>
+            </span>
           </Link>
           <MainNav />
         </div>
       </header>
+
+      <StudentIdentityBar />
 
       <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         {children ?? <Outlet />}

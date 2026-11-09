@@ -1,265 +1,323 @@
 # School Admission System
 
-Take-home assignment for the Assistant Software Engineer role. Students reserve a seat in a class,
-then confirm it before the hold expires. An admin creates classes. Seats can never be oversold,
-even when many students apply for the last seat at the same moment.
+An online admission system for a private school where seats are given **first come, first served**.
+Each class/shift has a fixed number of seats (for example "Class 6 – Morning Shift", 120 seats),
+and thousands of guardians can apply at the same moment.
 
-## Features
+- Applying **holds** a seat in the student's name for 10 minutes.
+- Confirming within that time (standing in for paying the admission fee) **confirms** the
+  admission.
+- A hold that isn't confirmed **expires** and its seat becomes available again.
+- An admin creates classes from the UI.
+- Guardians apply, confirm, cancel and follow their applications from the UI.
 
-- **Admin:** create a class with a name and a fixed number of seats.
-- **Students:**
-  - Browse classes with live seat counts (total, held, confirmed, available), refreshed every 3
-    seconds.
-  - Apply for a class. This creates a 10-minute **hold** on one seat.
-  - See the application with a live countdown, then **confirm** it or **cancel** it (a
-    confirmation dialog is shown first).
-  - See current applications and history under **My applications**.
-- **Rules enforced by the server:**
-  - A class never has more held + confirmed seats than its total.
-  - A student has at most one active application per class.
-  - An expired hold frees its seat automatically.
-  - Only the student who made an application can confirm or cancel it.
+The core guarantee: **a class never has more held + confirmed seats than its total**, no matter how
+many requests arrive at once or how many service instances are running.
+
+Decisions behind the design are in [ASSUMPTIONS.md](ASSUMPTIONS.md). How AI was used is in
+[AI_USAGE.md](AI_USAGE.md).
+
+## Technology stack
+
+| Layer            | Technology                                                                          |
+| ---------------- | ----------------------------------------------------------------------------------- |
+| Frontend         | React 19, TypeScript 6, Vite 8, Tailwind CSS 4, React Router 8, TanStack Query 5    |
+| Public API       | ASP.NET Core 8 Web API (C#), typed `HttpClient`, RFC 9457 ProblemDetails            |
+| Database service | Node.js 22, TypeScript 6, Express 5, Zod, Prisma ORM 7 (`@prisma/adapter-pg`), pino |
+| Database         | PostgreSQL (Neon by default; PostgreSQL 18 container optional)                      |
+| Tests            | Vitest, Supertest, React Testing Library, MSW 3, xUnit                              |
+| Runtime          | Docker Compose; nginx (unprivileged) serves the built frontend                      |
 
 ## Architecture
 
 ```
-React (Vite, :5173)
-   │  HTTP (public), X-Student-Id header identifies the student
+Browser ── React SPA (nginx :5173)
+   │  HTTP + X-Student-Id
    ▼
-ASP.NET Core 8 API (:8080)
-   │  HTTP + X-Internal-Api-Key (internal network only)
+ASP.NET Core 8 public API (:8080)              validation, identity rules, ProblemDetails, CORS
+   │  HTTP + X-Internal-Api-Key  (internal Docker network only)
    ▼
-Node.js / TypeScript database service (:4000, not published)
-   │  Prisma ORM 7 (pg driver adapter)
+Node.js database service (:4000, no host port)  reservation engine, Prisma transactions
+   │  Prisma ORM 7 over TLS
    ▼
-PostgreSQL on Neon (TLS, pooled URL at runtime / direct URL for migrations)
+PostgreSQL (Neon, or the optional local container)
 ```
 
-| Folder              | Stack                                                                      | Purpose                                           |
-| ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------- |
-| `frontend/`         | React 19, Vite 8, TypeScript 6, Tailwind CSS 4, TanStack Query 5, Router 8 | UI; talks **only** to the .NET API                |
-| `backend/`          | ASP.NET Core 8 Web API, xUnit                                              | Public API, validation, ownership, ProblemDetails |
-| `database-service/` | Node 22, Express 5, TypeScript 6, Prisma 7, Zod, Vitest                    | Internal data access and the reservation engine   |
+- The browser only ever talks to the .NET API at `VITE_API_BASE_URL`. It never sees the internal
+  hostname.
+- The .NET API has no database access and no Entity Framework Core. All data access and the
+  locking live in the Node service.
+- The Node service rejects any request without the shared internal key and publishes no port.
 
-The .NET API does not use EF Core and never connects to PostgreSQL. All data access goes through
-the internal service, which is not reachable from the browser.
+## Folder structure
 
-## Prerequisites
-
-- Node.js **22.18+** (Prisma 7 requirement)
-- .NET SDK **8.0**
-- A [Neon](https://neon.tech) project (verified on PostgreSQL 18.6; also tested on 17)
-- Docker Desktop (optional, for the full stack)
-
-## Neon setup
-
-1. Create a Neon project and database.
-2. In **Connect**, copy two connection strings:
-   - **Pooled** (host contains `-pooler`) → `DATABASE_URL`, used by the running service.
-   - **Direct** (pooling toggled off) → `DIRECT_URL`, used by the Prisma CLI for migrations.
-3. Change `sslmode=require` to `sslmode=verify-full`. `pg` treats them the same but warns about
-   `require`. Channel binding is enabled in code.
-
-## Run everything with Docker
-
-```bash
-cp .env.example .env        # paste the Neon URLs, set INTERNAL_API_KEY
-docker compose up --build   # the `migrate` job runs `prisma migrate deploy` first
-docker compose run --rm migrate npm run db:seed   # optional: seed the two classes
+```
+.
+├── docker-compose.yml          all services; postgres behind the `local-db` profile
+├── docker-compose.debug.yml    optional: exposes postgres/database-service on 127.0.0.1
+├── .env.example                compose settings (copy to .env)
+├── backend/
+│   ├── SchoolAdmission.Api/    Controllers, Contracts, Clients, Errors, Filters, HealthChecks
+│   ├── SchoolAdmission.Tests/  xUnit: endpoint, error-mapping and real-stack tests
+│   └── Dockerfile              multi-stage: restore, test, publish, aspnet runtime
+├── database-service/
+│   ├── prisma/                 schema, migrations (incl. hand-written SQL), seed
+│   ├── src/                    config, db, middleware, routes, services, types
+│   ├── tests/                  unit tests + tests/integration (real PostgreSQL)
+│   └── Dockerfile              targets: `migrate` (prisma migrate deploy) and `runtime`
+└── frontend/
+    ├── src/                    api, components, hooks, pages, types, utils, appRoutes.tsx
+    ├── src/integration/        MSW component tests of the full app
+    ├── src/e2e/                opt-in UI tests against the real running stack
+    ├── nginx.conf              SPA fallback, caching, health endpoint
+    └── Dockerfile              Vite build, then nginx
 ```
 
-- Frontend: <http://localhost:5173>
-- API: <http://localhost:8080/health> and <http://localhost:8080/health/ready>
-- The database service publishes **no** host port.
+## Run with Docker
 
-## Run locally (without Docker for the apps)
-
-**1. Database service** (port 4000, bound to 127.0.0.1):
+Only Docker is required.
 
 ```bash
-cd database-service
-cp .env.example .env          # Neon DATABASE_URL + DIRECT_URL, INTERNAL_API_KEY
-npm install
-npm run prisma:deploy         # apply committed migrations (prisma migrate deploy)
-npm run db:seed               # idempotent: creates "Class 1" (30) and "Class 2" (25)
-npm run dev
+cp .env.example .env    # fill in the values (see Environment variables)
+docker compose up --build
 ```
 
-**2. API** (port 8080). ASP.NET Core does not read `.env` files. Use user-secrets for the key:
+| What          | URL                                  |
+| ------------- | ------------------------------------ |
+| Frontend      | <http://localhost:5173>              |
+| Backend API   | <http://localhost:8080>              |
+| API liveness  | <http://localhost:8080/health>       |
+| API readiness | <http://localhost:8080/health/ready> |
+
+Start-up order is enforced with health checks:
+
+1. `migrate` runs `prisma migrate deploy` and exits.
+2. `database-service` becomes healthy.
+3. `backend` starts.
+4. `frontend` starts.
+
+The database service and PostgreSQL publish **no** host ports.
+
+**Neon (default).** Set `DATABASE_URL` to the pooled connection string and `DIRECT_URL` to the
+direct one, both with `sslmode=verify-full`.
+
+**Local PostgreSQL instead.** Leave `DATABASE_URL` and `DIRECT_URL` empty, set
+`POSTGRES_PASSWORD`, and use the profile:
 
 ```bash
-cd backend
-dotnet user-secrets --project SchoolAdmission.Api set "DatabaseService:ApiKey" "<same INTERNAL_API_KEY>"
-dotnet run --project SchoolAdmission.Api --launch-profile http
+docker compose --profile local-db up --build
+docker compose --profile local-db down     # include the profile, or postgres keeps running
 ```
 
-In Development the API calls the database service at `http://localhost:4000`. Override it with
-`PRISMA_SERVICE_URL`. The key can also come from the `INTERNAL_API_KEY` environment variable.
-Swagger UI is available at <http://localhost:8080/swagger> in Development.
-
-**3. Frontend** (port 5173):
+**Other commands**
 
 ```bash
-cd frontend
-cp .env.example .env.local    # optional; defaults to http://localhost:8080
-npm install
-npm run dev
+docker compose run --rm migrate npx prisma db seed   # optional: seed "Class 1" (30) and "Class 2" (25)
+HOLD_DURATION_SECONDS=30 docker compose up -d         # shorter holds for a demo
+docker compose -f docker-compose.yml -f docker-compose.debug.yml --profile local-db up -d
+                                                      # debugging: 127.0.0.1:5432 and 127.0.0.1:4000
 ```
 
 ## Screens
 
-| Route                | Screen                                                             |
-| -------------------- | ------------------------------------------------------------------ |
-| `/classes`           | Class list with live seat counts and **Apply now**                 |
-| `/applications/:id`  | Application details: status, countdown, **Confirm** and **Cancel** |
-| `/me/applications`   | The student's current applications and history                     |
-| `/admin/classes/new` | Create a class                                                     |
+| Route                | Who      | What                                                                             |
+| -------------------- | -------- | -------------------------------------------------------------------------------- |
+| `/classes`           | Guardian | Classes with live seat counts (every 3 s) and **Apply Now**                      |
+| `/applications/:id`  | Guardian | Status, countdown, **Confirm Admission**, **Cancel Application** (with a dialog) |
+| `/me/applications`   | Guardian | Current applications and history                                                 |
+| `/admin/classes/new` | Admin    | Create a class/shift with its seat count                                         |
 
-A student enters their 17-digit student ID once. It is saved in the browser and sent as the
-`X-Student-Id` header. This is identification only, not authentication. See
-[ASSUMPTIONS.md](ASSUMPTIONS.md).
+When the site opens, a welcome screen asks for the student's 17-digit birth registration number
+(spaces and dashes are accepted). It is kept in `localStorage` and shown, masked, at the top of
+every page, where it can be changed or cleared. Admin pages don't need it.
 
-- **Live data:** the class list polls every 3 seconds and never starts a new request while one is
-  still running. If a refresh fails, the page keeps the last data and says it may be out of date.
-- **Server is the source of truth:** a status such as `CONFIRMED` or `EXPIRED` is shown only after
-  the server reports it. When the countdown reaches zero, the page asks the server again.
+## API endpoints
 
-## Public API (.NET)
+Base URL `http://localhost:8080`. Endpoints marked ✔ under "Student ID" require the
+`X-Student-Id` header (17 digits).
 
-| Method | Path                       | Student ID | Result                                               |
-| ------ | -------------------------- | ---------- | ---------------------------------------------------- |
-| POST   | `/classes`                 | —          | 201 created class; 409 `CLASS_NAME_TAKEN`            |
-| GET    | `/classes`                 | —          | All classes with held, confirmed and available seats |
-| GET    | `/classes/{classId}`       | —          | One class; 404 if unknown                            |
-| POST   | `/classes/{classId}/holds` | required   | 201 hold (`HELD`, `expiresAt`)                       |
-| GET    | `/holds/{holdId}`          | —          | The hold with its current status                     |
-| POST   | `/holds/{holdId}/confirm`  | required   | 200 hold with status `CONFIRMED`                     |
-| DELETE | `/holds/{holdId}`          | required   | 204 No Content; the hold becomes `CANCELLED`         |
-| GET    | `/me/holds`                | required   | The student's holds, newest first                    |
+| Method | Path                       | Student ID | Success | Response body                                                           |
+| ------ | -------------------------- | ---------- | ------- | ----------------------------------------------------------------------- |
+| POST   | `/classes`                 |            | 201     | `{ id, name, totalSeats }` + `Location`                                 |
+| GET    | `/classes`                 |            | 200     | `[{ id, name, totalSeats, heldSeats, confirmedSeats, availableSeats }]` |
+| GET    | `/classes/{classId}`       |            | 200     | `{ id, name, totalSeats, heldSeats, confirmedSeats, availableSeats }`   |
+| POST   | `/classes/{classId}/holds` | ✔          | 201     | `{ holdId, classId, studentId, status, expiresAt }` + `Location`        |
+| GET    | `/holds/{holdId}`          |            | 200     | `{ holdId, classId, status, expiresAt }`                                |
+| POST   | `/holds/{holdId}/confirm`  | ✔          | 200     | `{ holdId, status }`                                                    |
+| DELETE | `/holds/{holdId}`          | ✔          | 204     | empty (the hold becomes `CANCELLED`; it is not deleted)                 |
+| GET    | `/me/holds`                | ✔          | 200     | `[{ holdId, classId, className, status, expiresAt }]`, newest first     |
 
-A missing `X-Student-Id` returns 401 `STUDENT_ID_REQUIRED`; an invalid one returns 400.
+- `POST /classes` takes `{ "name": string, "totalSeats": 1–10000 }`.
+- Class IDs are positive integers (`1`, `2`, `3`, …) assigned by the database. Hold IDs are UUIDs.
+- A student can have only **one confirmed admission** in total. Applying to or confirming another
+  class afterwards returns `409 ALREADY_ADMITTED`.
+- `status` is one of `HELD`, `CONFIRMED`, `EXPIRED`, `CANCELLED`.
+- Timestamps are UTC ISO-8601.
 
-Errors are [RFC 9457 ProblemDetails](https://www.rfc-editor.org/rfc/rfc9457)
-(`application/problem+json`) with a machine-readable `code` and a `traceId`:
+**Errors** are `application/problem+json` with `status`, `title`, `detail`, a stable `code` and a
+`traceId`:
 
-| Status | Codes                                                                                              |
-| ------ | -------------------------------------------------------------------------------------------------- |
-| 400    | `VALIDATION_ERROR` (unknown JSON fields and numbers sent as strings are rejected)                  |
-| 403    | `HOLD_NOT_OWNED`                                                                                   |
-| 404    | `NOT_FOUND`                                                                                        |
-| 409    | `SEATS_FULL`, `DUPLICATE_APPLICATION`, `HOLD_EXPIRED`, `HOLD_NOT_ACTIVE`, `HOLD_ALREADY_CONFIRMED` |
-| 503    | `SERVICE_BUSY` (lock wait timed out, safe to retry), `DATABASE_UNAVAILABLE`                        |
+| Status | `code`                                                                                                                                     |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| 400    | `VALIDATION_ERROR` (with `errors` per field; unknown fields and numbers sent as strings are rejected)                                      |
+| 401    | `STUDENT_ID_REQUIRED`                                                                                                                      |
+| 403    | `HOLD_NOT_OWNED`                                                                                                                           |
+| 404    | `NOT_FOUND`                                                                                                                                |
+| 409    | `CLASS_NAME_TAKEN`, `SEATS_FULL`, `DUPLICATE_APPLICATION`, `ALREADY_ADMITTED`, `HOLD_EXPIRED`, `HOLD_NOT_ACTIVE`, `HOLD_ALREADY_CONFIRMED` |
+| 502    | `UPSTREAM_ERROR` (internal service failed; no internal details are returned)                                                               |
+| 503    | `SERVICE_BUSY` (with `Retry-After: 1`), `SERVICE_UNAVAILABLE`                                                                              |
+| 504    | `UPSTREAM_TIMEOUT`                                                                                                                         |
 
-CORS allows only the origins in `Cors:AllowedOrigins` (`CORS_ALLOWED_ORIGINS` in Docker).
+## Environment variables
 
-## Internal database service API
+Root `.env`, read by Docker Compose (template: [.env.example](.env.example)):
 
-Every route requires `X-Internal-Api-Key`, checked before the body is read. Request and response
-contracts live in [database-service/src/types/](database-service/src/types/).
+| Variable                              | Default                              | Purpose                                                |
+| ------------------------------------- | ------------------------------------ | ------------------------------------------------------ |
+| `DATABASE_URL`                        | local postgres                       | Runtime connection (Neon pooled URL)                   |
+| `DIRECT_URL`                          | `DATABASE_URL`                       | Migrations (Neon direct URL)                           |
+| `POSTGRES_USER` / `_PASSWORD` / `_DB` | `admission` / — / `school_admission` | Only for the `local-db` profile                        |
+| `INTERNAL_API_KEY`                    | required (≥ 16 chars)                | Shared secret between the API and the database service |
+| `HOLD_DURATION_SECONDS`               | `600`                                | How long a hold lasts                                  |
+| `VITE_API_BASE_URL`                   | `http://localhost:8080`              | Public API URL baked into the frontend build           |
+| `CORS_ALLOWED_ORIGINS`                | `http://localhost:5173`              | Comma-separated browser origins allowed by the API     |
+| `BACKEND_PORT` / `FRONTEND_PORT`      | `8080` / `5173`                      | Host ports                                             |
+| `RESERVATION_LOCK_TIMEOUT_MS`         | `5000`                               | Max wait for a class lock before `503 SERVICE_BUSY`    |
+| `RESERVATION_TX_TIMEOUT_MS`           | `15000`                              | Max seat-transaction time                              |
+| `DATABASE_POOL_MAX`                   | `10`                                 | Connections per database-service instance              |
 
-| Method | Path                         | Notes                                                   |
-| ------ | ---------------------------- | ------------------------------------------------------- |
-| POST   | `/classes`                   | `{ name, totalSeats }` → 201 `{ data: Class }`          |
-| GET    | `/classes`                   | `{ data: Class[] }` with held/confirmed/available seats |
-| GET    | `/classes/:classId`          | `{ data: Class }`                                       |
-| POST   | `/holds`                     | `{ classId, studentId }` → 201 `{ data: Hold }`         |
-| GET    | `/holds/:holdId`             | `{ data: Hold }`                                        |
-| POST   | `/holds/:holdId/confirm`     | `{ studentId }`                                         |
-| POST   | `/holds/:holdId/cancel`      | `{ studentId }`                                         |
-| GET    | `/students/:studentId/holds` | `{ data: Hold[] }`                                      |
+Each service also has its own `.env.example` for running outside Docker:
+[database-service](database-service/.env.example), [backend](backend/.env.example) and
+[frontend](frontend/.env.example). In the API, `PRISMA_SERVICE_URL` and `INTERNAL_API_KEY` can
+also be set through user-secrets.
 
-Errors always look like
-`{ "error": { "code": "VALIDATION_ERROR", "message": "...", "details": [{ "path": "name", "message": "..." }] }, "requestId": "..." }`.
+## Try the API with Postman
 
-## Seat reservation engine
+1. In Postman choose **Import** and select
+   [postman/SchoolAdmission.postman_collection.json](postman/SchoolAdmission.postman_collection.json).
+2. Start the stack (`docker compose up --build`). The collection's `baseUrl` variable is
+   `http://localhost:8080`.
+3. Run the folders in order, or use **Run collection**. _Create class_ stores the new numeric
+   `classId`, and _Apply_ stores `holdId`, so later requests use them automatically.
+4. Change the `studentId` collection variable (17 digits) to act as a different student.
 
-The engine is in [database-service/src/services/hold.service.ts](database-service/src/services/hold.service.ts).
-Every operation that changes seats runs in one READ COMMITTED transaction:
+Every request has tests that check the status code (and the error `code` for the error
+examples). The collection creates real classes and holds in whichever database the stack uses.
 
-1. Set `lock_timeout`, then lock the class row with `SELECT … FOR UPDATE`. Requests for the same
-   class wait in line; other classes are not affected.
-2. Read the time from the database (`clock_timestamp()`), after the lock.
-3. Mark this class's expired `HELD` rows as `EXPIRED`.
-4. Count active holds and confirmations, and reject with `SEATS_FULL` if none are left.
-5. Insert the hold.
-
-Locks are always taken in the same order (class row, then hold row), so operations cannot
-deadlock. A partial unique index blocks a second active application by the same student, and
-triggers stop holds being deleted. Reads report a past-expiry `HELD` hold as `EXPIRED` without
-waiting for a write.
-
-Tests prove the locking matters: removing `FOR UPDATE` oversold 13 holds for 10 seats, and so did
-switching to REPEATABLE READ.
-
-| Variable                      | Default | Meaning                                |
-| ----------------------------- | ------- | -------------------------------------- |
-| `HOLD_DURATION_SECONDS`       | 600     | How long a hold lasts                  |
-| `RESERVATION_LOCK_TIMEOUT_MS` | 5000    | Max wait for the class lock (then 503) |
-| `RESERVATION_TX_TIMEOUT_MS`   | 15000   | Max transaction time                   |
-| `DATABASE_POOL_MAX`           | 10      | Connection pool size                   |
-
-## Health endpoints
-
-| Service          | Endpoint            | Meaning                                                    |
-| ---------------- | ------------------- | ---------------------------------------------------------- |
-| API              | `GET /health`       | Liveness: the process is up, no dependency checks          |
-| API              | `GET /health/ready` | Readiness: the database service (and so Postgres) is ready |
-| Database service | `GET /health`       | Liveness (requires `X-Internal-Api-Key`)                   |
-| Database service | `GET /health/ready` | Runs `SELECT 1` through Prisma; 503 if the DB is down      |
-
-## Database
-
-Schema: [database-service/prisma/schema.prisma](database-service/prisma/schema.prisma).
-Migrations: [database-service/prisma/migrations/](database-service/prisma/migrations/).
-
-| Object                                | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `admission_classes`                   | Classes with a fixed `total_seats` (> 0) and a unique, non-blank `name` |
-| `admission_holds`                     | Seat holds and confirmations. Never deleted, so history is kept         |
-| `admission_class_availability` (view) | `held_seats`, `confirmed_seats`, `available_seats` from DB time         |
-
-| Command                    | What it does                                                    |
-| -------------------------- | --------------------------------------------------------------- |
-| `npm run prisma:migrate`   | Dev only: create and apply a new migration (`migrate dev`)      |
-| `npm run prisma:deploy`    | Apply committed migrations (`migrate deploy`, production)       |
-| `npm run prisma:status`    | Show applied and pending migrations                             |
-| `npm run db:seed`          | Seed the two classes (safe to re-run)                           |
-| `npm run test:integration` | Schema tests. Needs `TEST_DATABASE_URL` with migrations applied |
-
-`prisma db push` is not used. All schema changes go through committed migrations. See
-[ASSUMPTIONS.md](ASSUMPTIONS.md#database-schema) for constraint details.
-
-## Tests and quality checks
-
-| Suite                              | Count | What it covers                                                          |
-| ---------------------------------- | ----- | ----------------------------------------------------------------------- |
-| Database service unit tests        | 62    | Routes, validation, auth, error envelope, config                        |
-| Database service integration tests | 44    | Schema constraints, concurrent applications, hold lifecycle on Postgres |
-| .NET API tests                     | 65    | All endpoints, ProblemDetails, student ID rules, CORS, strict JSON      |
-| Frontend component tests           | 45    | Workflow screens plus countdown, expiry, focus, reconnect, cleanup      |
-| Frontend full-stack tests (opt-in) | 6     | Real pages against the real API, database service and PostgreSQL        |
+## Run without Docker (development)
 
 ```bash
-# database-service
-npm run typecheck && npm run lint && npm run format:check && npm test && npm run build
-TEST_DATABASE_URL=postgresql://... npm run test:integration   # use a disposable database
+# 1. database service (127.0.0.1:4000)
+cd database-service && cp .env.example .env && npm install
+npm run prisma:deploy && npm run db:seed && npm run dev
 
-# frontend
-npm run typecheck && npm run lint && npm run format:check && npm test && npm run build
-E2E_FULL_STACK=true npm run test:e2e   # needs the API on :8080 with the database service running
-E2E_FULL_STACK=true E2E_HOLD_SECONDS=8 npm run test:e2e   # also runs the expiry test; start the database service with HOLD_DURATION_SECONDS=8
+# 2. API (http://localhost:8080, Swagger at /swagger)
+cd backend
+dotnet user-secrets --project SchoolAdmission.Api set INTERNAL_API_KEY "<same key>"
+dotnet run --project SchoolAdmission.Api --launch-profile http
 
-# backend
-dotnet build SchoolAdmission.sln -c Release      # warnings are errors, code style enforced
-dotnet test SchoolAdmission.sln
-dotnet format SchoolAdmission.sln --verify-no-changes
+# 3. frontend (http://localhost:5173)
+cd frontend && npm install && npm run dev
 ```
 
-The full-stack tests create classes and holds with an `E2E` name prefix, so run them against a
-test database, not production.
+## Testing
 
-## Configuration
+| Suite                                        | Command (in the project folder)        | Needs                     |
+| -------------------------------------------- | -------------------------------------- | ------------------------- |
+| Database service unit tests (62)             | `npm test`                             | nothing                   |
+| Database service PostgreSQL tests (71)       | `npm test` with the variables below    | a disposable PostgreSQL   |
+| .NET API tests (166 + 6 real-stack)          | `dotnet test SchoolAdmission.sln`      | nothing / running service |
+| Frontend component + MSW tests (108)         | `npm test`                             | nothing                   |
+| Frontend UI tests against the real stack (6) | `E2E_FULL_STACK=true npm run test:e2e` | API on :8080              |
 
-All configuration comes from environment variables. Each service has a `.env.example`. Real `.env`
-files are git-ignored. See [ASSUMPTIONS.md](ASSUMPTIONS.md) for design decisions and
-[AI_USAGE.md](AI_USAGE.md) for how AI tools were used.
+- **PostgreSQL tests:** set `TEST_DATABASE_URL=postgresql://…` and `TEST_DATABASE_DEDICATED=true`.
+  Use a database you can throw away: holds can't be deleted, so test rows stay.
+  `CONCURRENCY_ROUNDS` (default 5) sets how many times the burst tests repeat.
+- **Real-stack .NET tests:** set `REAL_PRISMA_SERVICE_URL` and `REAL_INTERNAL_API_KEY`. Without
+  them those 6 tests are reported as skipped.
+- **Expiry UI test:** add `E2E_HOLD_SECONDS=8` and start the stack with `HOLD_DURATION_SECONDS=8`.
+
+Static checks:
+
+```bash
+# database-service and frontend
+npm run typecheck && npm run lint && npm run format:check && npm run build
+# backend (warnings are errors; code style enforced)
+dotnet build SchoolAdmission.sln -c Release && dotnet format SchoolAdmission.sln --verify-no-changes
+```
+
+## Concurrency design
+
+Every operation that changes seat occupancy (apply, confirm, cancel) runs in one READ COMMITTED
+transaction in [hold.service.ts](database-service/src/services/hold.service.ts):
+
+1. Set `lock_timeout`, then lock the **class row** with `SELECT … FOR UPDATE`. Requests for the
+   same class now run one at a time, in every service instance, because the lock is in PostgreSQL.
+2. Read the time with `clock_timestamp()` after getting the lock.
+3. Mark this class's expired `HELD` rows as `EXPIRED`.
+4. Check for an active application by the same student, then count active `HELD` + `CONFIRMED`
+   seats.
+5. Reject with `DUPLICATE_APPLICATION`, `ALREADY_ADMITTED` or `SEATS_FULL`, or insert the hold.
+   Commit.
+
+Confirming checks that the student has no confirmed admission elsewhere. Two confirms by one
+student in different classes lock different class rows, so a partial unique index
+`(student_id) WHERE status = 'CONFIRMED'` makes the database refuse the second one; it surfaces as
+`ALREADY_ADMITTED`.
+
+**Why overselling can't happen.** The count and the insert happen while holding the class lock, and
+every seat change takes that same lock first. So no two transactions can both see the last free
+seat. Several safeguards back this up:
+
+- Locks are always taken class row first, then hold row, so operations can't deadlock.
+- A partial unique index on `(class_id, student_id) WHERE status IN ('HELD','CONFIRMED')` blocks a
+  duplicate even if application logic were wrong.
+- Rejections commit the expiry sweep, so stored statuses stay accurate.
+- A request that can't get the lock within `RESERVATION_LOCK_TIMEOUT_MS` gets `503 SERVICE_BUSY`
+  and changes nothing.
+
+**Verified by:**
+
+- 100 concurrent students for 10 seats, spread over three separate service processes: exactly 10
+  holds and 90 `SEATS_FULL`, in every one of 20 rounds.
+- Seat counts sampled during each burst never went negative.
+- Removing `FOR UPDATE`, or switching to REPEATABLE READ, made those tests fail with overselling.
+
+## Persistence
+
+- All state is in PostgreSQL. The services are stateless and can be restarted or scaled.
+- With the `local-db` profile, data lives in the named volume `pgdata`, so
+  `docker compose down` / `up --build` keeps it. Only `docker compose down -v` deletes it.
+- With Neon, data lives in the Neon project.
+- Applications are never deleted (a database trigger blocks it). Status changes keep the full
+  history.
+- Seat counts are never stored. They are always computed from the rows, using database time.
+- Migrations are versioned in `database-service/prisma/migrations` and applied on every start by
+  the `migrate` job. `prisma db push` is not used.
+
+## Known limitations
+
+- **No authentication.** The student ID header identifies but does not authenticate. Anyone who
+  knows a birth registration number can act for that student, and the admin page is open to
+  everyone. Production needs guardian accounts or OTP and an admin role.
+- **No payment gateway.** "Confirm Admission" stands in for a successful fee payment.
+- **Limited admin features.** The admin can create classes and see live counts, but can't edit
+  or close a class or list its applicants.
+- **Lazy expiry.** An expired hold frees its seat immediately in every count and read. Its stored
+  status changes to `EXPIRED` at the next seat change for that class, since there is no background
+  job.
+- **The hold ID is a bearer reference.** `GET /holds/{id}` needs no student ID. It returns no
+  personal data, and IDs are random UUIDs.
+- **Polling, not push.** Seat counts refresh every 3 seconds. With very large audiences, server-sent
+  events or a CDN-cached list would reduce load.
+- **No rate limiting** on the public API.
+- **No pagination on the class list.** Every class is rendered and refreshed every 3 seconds. That
+  is fine for a school (tens of classes) but would need paging for hundreds.
+- **`VITE_API_BASE_URL` is fixed at build time.** Changing it means rebuilding the frontend image.
+- **Lock waits under extreme contention.** All applications for one class queue behind one row
+  lock. Waits are capped by `RESERVATION_LOCK_TIMEOUT_MS` and return `503 SERVICE_BUSY`; they don't
+  hang.
+- **Browser clock.** The countdown uses the browser clock with the server's `expiresAt`. A wrong
+  device clock shifts the display, but the server always decides validity.
+- **Dev-only audit warnings.** `npm audit` reports moderate advisories in dev-only tooling
+  (`minimatch` via ESLint/MSW). Production dependencies report none.

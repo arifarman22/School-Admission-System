@@ -5,11 +5,8 @@ export function listClasses(signal?: AbortSignal): Promise<AdmissionClass[]> {
   return apiRequest<AdmissionClass[]>('/classes', signal ? { signal } : {});
 }
 
-export function getClass(classId: string, signal?: AbortSignal): Promise<AdmissionClass> {
-  return apiRequest<AdmissionClass>(
-    `/classes/${encodeURIComponent(classId)}`,
-    signal ? { signal } : {},
-  );
+export function getClass(classId: number, signal?: AbortSignal): Promise<AdmissionClass> {
+  return apiRequest<AdmissionClass>(`/classes/${classId}`, signal ? { signal } : {});
 }
 
 export function createClass(request: CreateClassRequest): Promise<ClassCreated> {

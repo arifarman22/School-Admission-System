@@ -17,15 +17,21 @@ const stats = [
 
 export function ClassCard({ admissionClass, stale = false }: ClassCardProps) {
   const full = admissionClass.availableSeats <= 0;
+  const fewLeft =
+    !full &&
+    admissionClass.availableSeats <= Math.max(5, Math.ceil(admissionClass.totalSeats * 0.1));
   const headingId = `class-${admissionClass.id}-name`;
 
   return (
     <Card className={`flex h-full flex-col ${stale ? 'opacity-75' : ''}`}>
       <article aria-labelledby={headingId} className="flex h-full flex-col gap-5 p-5">
         <div className="flex items-start justify-between gap-3">
-          <h2 id={headingId} className="text-base font-semibold break-words text-slate-900">
-            {admissionClass.name}
-          </h2>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500">Class #{admissionClass.id}</p>
+            <h2 id={headingId} className="text-base font-semibold break-words text-slate-900">
+              {admissionClass.name}
+            </h2>
+          </div>
           {full ? (
             <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700 ring-1 ring-rose-600/20 ring-inset">
               Full
@@ -55,6 +61,13 @@ export function ClassCard({ admissionClass, stale = false }: ClassCardProps) {
         </dl>
 
         <SeatAvailability seats={admissionClass} />
+
+        {fewLeft && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            Hurry: only {admissionClass.availableSeats}{' '}
+            {admissionClass.availableSeats === 1 ? 'seat' : 'seats'} left.
+          </p>
+        )}
 
         <div className="mt-auto">
           <ApplyButton classId={admissionClass.id} className={admissionClass.name} full={full} />

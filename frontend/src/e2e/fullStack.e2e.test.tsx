@@ -94,8 +94,15 @@ describe.skipIf(!enabled)(`full stack through ${apiBaseUrl}`, () => {
       timeout: 10_000,
     });
     const holdId = router.state.location.pathname.split('/').pop()!;
-    expect(await screen.findByRole('heading', { name }, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.getByText(holdId)).toBeInTheDocument();
+    expect(await screen.findByText(holdId, {}, { timeout: 10_000 })).toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(screen.getByText('Class', { selector: 'dt' }).nextElementSibling).toHaveTextContent(
+          name,
+        ),
+      { timeout: 10_000 },
+    );
+    expect(screen.queryByRole('article', { name })).not.toBeInTheDocument();
     if (!shortHolds) expect(screen.getByRole('timer')).toHaveTextContent(/^(09|10):\d\d$/);
 
     await user.click(screen.getByRole('button', { name: 'Confirm Admission' }));

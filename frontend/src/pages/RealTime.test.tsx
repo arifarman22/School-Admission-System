@@ -8,7 +8,7 @@ import { AdmissionPage } from './AdmissionPage';
 import { ClassListPage } from './ClassListPage';
 
 const STUDENT = '20152691234567890';
-const CLASS_ID = '3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01';
+const CLASS_ID = 6;
 const HOLD_ID = '8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a';
 
 const cls = (heldSeats: number): AdmissionClass => ({

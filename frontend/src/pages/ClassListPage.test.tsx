@@ -6,7 +6,7 @@ import type { AdmissionClass } from '../types/api';
 import { ClassListPage } from './ClassListPage';
 
 const morning: AdmissionClass = {
-  id: '3f0d6c2e-1b7a-4c51-9a55-2d3f2b9b1e01',
+  id: 6,
   name: 'Class 6 - Morning Shift',
   totalSeats: 120,
   heldSeats: 15,
@@ -15,7 +15,7 @@ const morning: AdmissionClass = {
 };
 
 const fullClass: AdmissionClass = {
-  id: '9b1e0f2d-3c4a-4d5e-8f6a-7b8c9d0e1f2a',
+  id: 7,
   name: 'Class 7 - Day Shift',
   totalSeats: 40,
   heldSeats: 5,

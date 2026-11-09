@@ -81,7 +81,7 @@ export function useCreateHold() {
   const { studentId } = useStudentId();
   const invalidate = useInvalidateAdmissionData();
   return useMutation({
-    mutationFn: (classId: string) => createHold(classId, requireStudentId(studentId)),
+    mutationFn: (classId: number) => createHold(classId, requireStudentId(studentId)),
     onSettled: invalidate,
   });
 }

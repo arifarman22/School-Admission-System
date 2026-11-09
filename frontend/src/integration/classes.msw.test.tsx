@@ -10,45 +10,82 @@ const api = setupFakeBackend();
 beforeEach(installFakeClock);
 afterEach(() => vi.useRealTimers());
 
-describe('1. student ID input validation', () => {
+describe('1. welcome screen and student ID input', () => {
+  it('asks for the birth registration number when the site opens, before loading anything', async () => {
+    renderApp('/');
+
+    expect(await screen.findByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
+    expect(screen.getByLabelText('Birth registration number')).toHaveFocus();
+    expect(screen.getByText('0 of 17 digits. Spaces and dashes are fine.')).toBeInTheDocument();
+    expect(screen.getByText('How it works')).toBeInTheDocument();
+    for (const step of ['Choose a class', 'Your seat is held for you', 'Confirm admission']) {
+      expect(screen.getByText(step)).toBeInTheDocument();
+    }
+    expect(api.backend.requests).toHaveLength(0);
+  });
+
   it.each([
     ['', 'Enter your birth registration number.'],
     ['12345', 'Must be exactly 17 digits (you entered 5).'],
     ['201526912345678901', 'Must be exactly 17 digits (you entered 18).'],
-    ['2015269123456789a', 'Use digits 0–9 only, with no spaces or dashes.'],
-    ['2015-2691-2345678', 'Use digits 0–9 only, with no spaces or dashes.'],
+    ['2015269123456789a', 'Use digits 0–9 only.'],
+    ['2015-2691-2345678', 'Must be exactly 17 digits (you entered 15).'],
   ])('rejects %j and saves nothing', async (input, message) => {
     const { user } = renderApp('/classes');
     const field = screen.getByLabelText('Birth registration number');
     if (input) await user.type(field, input);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBeNull();
+    expect(api.backend.requests).toHaveLength(0);
   });
 
-  it('accepts 17 digits (trimming spaces), masks it, persists it and can clear it', async () => {
+  it('counts digits as they are typed and accepts spaces and dashes', async () => {
     const { user } = renderApp('/classes');
-    await user.type(screen.getByLabelText('Birth registration number'), `  ${STUDENT} `);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const field = screen.getByLabelText('Birth registration number');
+    await user.type(field, '2015 2691');
+    expect(screen.getByText('8 of 17 digits. Spaces and dashes are fine.')).toBeInTheDocument();
+    await user.type(field, '-2345-67890');
+    expect(screen.getByText('All 17 digits entered.')).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('2015 •••• •••• 7890')).toBeInTheDocument();
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBe(STUDENT);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Classes' })).toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(screen.getByLabelText('Birth registration number')).toBeInTheDocument();
+  it('can change and clear the ID, returning to the welcome screen', async () => {
+    const { user } = renderApp('/classes', { studentId: STUDENT });
+    expect(await screen.findByText('2015 •••• •••• 7890')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Change' }));
+    const field = screen.getByLabelText('Birth registration number');
+    await user.type(field, '20152691234567891');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('2015 •••• •••• 7891')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /clear/i }));
+    expect(await screen.findByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
     expect(window.localStorage.getItem(STUDENT_ID_STORAGE_KEY)).toBeNull();
   });
 
   it('clears the error as soon as the student edits the value', async () => {
     const { user } = renderApp('/classes');
     await user.type(screen.getByLabelText('Birth registration number'), '123');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText(/must be exactly 17 digits/i)).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Birth registration number'), '4');
     expect(screen.queryByText(/must be exactly 17 digits/i)).not.toBeInTheDocument();
+  });
+
+  it('lets an administrator reach the admin panel without a student ID', async () => {
+    const { user, router } = renderApp('/');
+    await user.click(await screen.findByRole('link', { name: 'Go to the admin panel' }));
+    expect(router.state.location.pathname).toBe('/admin/classes/new');
+    expect(await screen.findByLabelText('Class name')).toBeInTheDocument();
   });
 });
 
@@ -74,7 +111,7 @@ describe('2. class creation form', () => {
   });
 
   it('creates a class, normalises the name, resets the form and shows it in the class list', async () => {
-    const { user, router } = renderApp('/admin/classes/new');
+    const { user, router } = renderApp('/admin/classes/new', { studentId: STUDENT });
     await user.type(screen.getByLabelText('Class name'), '  Class 6   Morning  ');
     await user.type(screen.getByLabelText('Total seats'), '40');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
@@ -156,7 +193,7 @@ describe('3-5. class list, seat counts and full classes', () => {
   it('renders every class from the server', async () => {
     api.backend.addClass('Class 1 - Morning', 30);
     api.backend.addClass('Class 2 - Day', 25);
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
 
     const list = await screen.findByRole('list', { name: 'Classes' });
     expect(
@@ -171,7 +208,7 @@ describe('3-5. class list, seat counts and full classes', () => {
     const cls = api.backend.addClass('Class 6', 40);
     api.backend.fill(cls.id, 30, 'CONFIRMED');
     api.backend.fill(cls.id, 5, 'HELD');
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
 
     const card = await findCard('Class 6');
     expect(stat(card, 'Total')).toBe('40');
@@ -186,7 +223,7 @@ describe('3-5. class list, seat counts and full classes', () => {
 
   it('updates seat counts every 3 seconds without a reload', async () => {
     const cls = api.backend.addClass('Class 6', 3);
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
     const card = await findCard('Class 6');
     expect(stat(card, 'Available')).toBe('3');
 
@@ -223,8 +260,49 @@ describe('3-5. class list, seat counts and full classes', () => {
   });
 
   it('shows an empty state when there are no classes', async () => {
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
     expect(await screen.findByText('No classes yet')).toBeInTheDocument();
+  });
+});
+
+describe('class list usability', () => {
+  it('shows each class number and finds classes by name or number', async () => {
+    api.backend.addClass('Class 6 - Morning Shift', 30);
+    const day = api.backend.addClass('Class 6 - Day Shift', 30);
+    api.backend.addClass('Class 7 - Morning Shift', 30);
+    const { user } = renderApp('/classes', { studentId: STUDENT });
+
+    const card = await findCard('Class 6 - Day Shift');
+    expect(within(card).getByText(`Class #${day.id}`)).toBeInTheDocument();
+
+    const search = screen.getByRole('searchbox', { name: 'Search classes' });
+    await user.type(search, 'morning');
+    expect(screen.getAllByRole('article').map((a) => a.querySelector('h2')!.textContent)).toEqual([
+      'Class 6 - Morning Shift',
+      'Class 7 - Morning Shift',
+    ]);
+
+    await user.clear(search);
+    await user.type(search, `#${day.id}`);
+    expect(screen.getAllByRole('article')).toHaveLength(1);
+    expect(screen.getByRole('article', { name: 'Class 6 - Day Shift' })).toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, 'Class 9');
+    expect(screen.getByText('No matching classes')).toBeInTheDocument();
+  });
+
+  it('warns when only a few seats are left', async () => {
+    const tight = api.backend.addClass('Class 8', 40);
+    api.backend.fill(tight.id, 37, 'CONFIRMED');
+    const roomy = api.backend.addClass('Class 9', 40);
+    api.backend.fill(roomy.id, 10, 'CONFIRMED');
+    renderApp('/classes', { studentId: STUDENT });
+
+    expect(
+      within(await findCard('Class 8')).getByText('Hurry: only 3 seats left.'),
+    ).toBeInTheDocument();
+    expect(within(await findCard('Class 9')).queryByText(/hurry/i)).not.toBeInTheDocument();
   });
 });
 
@@ -234,7 +312,7 @@ describe('15. network failure feedback on the class list', () => {
     api.server.use(
       http.get(api.backend.url('/classes'), () => HttpResponse.error(), { once: true }),
     );
-    const { user } = renderApp('/classes');
+    const { user } = renderApp('/classes', { studentId: STUDENT });
 
     expect(await screen.findByText('Could not load classes')).toBeInTheDocument();
     expect(screen.getByText(/cannot reach the admission service/i)).toBeInTheDocument();
@@ -245,7 +323,7 @@ describe('15. network failure feedback on the class list', () => {
 
   it('keeps the last data, warns it is stale, shows Reconnecting and recovers', async () => {
     api.backend.addClass('Class 1', 10);
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
     await findCard('Class 1');
 
     api.server.use(http.get(api.backend.url('/classes'), () => HttpResponse.error()));
@@ -274,7 +352,7 @@ describe('15. network failure feedback on the class list', () => {
     api.server.use(
       http.get(api.backend.url('/classes'), () => problem(503, 'SERVICE_UNAVAILABLE', 'down')),
     );
-    renderApp('/classes');
+    renderApp('/classes', { studentId: STUDENT });
     expect(await screen.findByText('Could not load classes')).toBeInTheDocument();
     expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
   });

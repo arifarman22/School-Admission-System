@@ -1,168 +1,289 @@
-# Assumptions & Decisions
+# Assumptions
 
-## Repository layout
+The brief (section 1.1, translated from Bengali):
 
-- The repository root **is** the `school-admission-system/` folder from the brief. No extra nesting
-  level was added.
-- The original `README.md` was UTF-16 encoded, so git stored it as binary. It was rewritten as UTF-8.
-  Its only content was the title.
+> A private school is taking admissions online for the new academic year. Admission is
+> **first come, first served — there is no lottery**. Every **shift of every class has a limited
+> number of seats** (for example "Class 6 – Morning Shift" has 120). As soon as admission opens,
+> **thousands of guardians apply at the same time**.
+>
+> When someone applies, a seat is **held** in the student's name **for a limited time**. If the
+> admission fee is paid within that time, the admission is **confirmed**. If it is not paid in time,
+> the seat **opens up for others** again.
+>
+> Build both the backend and the React UI. The **school admin and guardians do everything from the
+> UI**.
+>
+> The brief does not spell everything out. Assume whatever is reasonable and record it in
+> `ASSUMPTIONS.md` with reasons.
+
+Each assumption below names the part of the brief it interprets and why it was chosen.
+
+## Admission model
+
+### A class-and-shift is one "class"
+
+- **Brief:** seats are limited per shift of each class, e.g. "Class 6 – Morning Shift" (120).
+- **Assumption:** every class/shift combination is its own `AdmissionClass` with its own name and
+  `totalSeats`, for example `Class 6 – Morning Shift` and `Class 6 – Day Shift`. There is no
+  separate Shift entity.
+- **Why:** seats are counted per shift, so the shift is the unit of capacity. One flat entity keeps
+  the locking unit, the capacity rule and the UI identical for every class. A Class → Shift
+  hierarchy would only add joins without changing any rule. Splitting them later is a schema
+  migration, not a redesign.
+- Class names are unique and case-sensitive after trimming and collapsing whitespace.
+
+### "First come, first served" means first to reach the database
+
+- **Brief:** first come, first served, no lottery, thousands applying at once.
+- **Assumption:** "first" is the order in which applications reach the class's database row lock.
+  Each class row acts as a queue: PostgreSQL grants `SELECT … FOR UPDATE` to waiting transactions
+  approximately in the order they asked. This is not a strict FIFO guarantee, but it is never a
+  random draw. Once the seats are gone, everyone after that gets `409 SEATS_FULL`.
+- **Why:** there is no fair clock across thousands of browsers. Client timestamps can be forged,
+  and network delay before the server is outside the school's control. The database lock is the
+  first point where requests are strictly ordered. There is no waiting list or lottery, as the
+  brief rules them out.
+
+### The student is identified by a 17-digit birth registration number
+
+- **Brief:** the seat is held "in the student's name"; guardians apply.
+- **Assumption:** the student is identified by their Bangladeshi **birth registration number**:
+  exactly 17 ASCII digits, stored as text so leading zeros survive. A guardian types it once; the
+  browser keeps it in `localStorage` and sends it as the `X-Student-Id` header.
+- **Why:** it is the identifier every applicant already has, and it is unique per child. That
+  makes "one application per student per class" enforceable without accounts.
+- Only the format is checked. The number is not verified against a government registry.
+
+### No login
+
+- **Brief:** guardians and the admin use the UI; accounts are not mentioned.
+- **Assumption:** there is no authentication. The student ID header is identification, not proof
+  of identity. The admin screen is open as well.
+- **Why:** authentication is out of scope for the exercise, and it would hide the core problem
+  (seat reservation). The trade-off is listed in the README's known limitations: anyone who knows
+  a birth registration number can act for that student. Production would need guardian accounts
+  (or OTP) and an admin role. The API keeps the identity check in one filter so this can be added
+  in one place.
+
+### Default hold duration is 600 seconds
+
+- **Brief:** the seat is held "for a limited time"; no duration given.
+- **Assumption:** 10 minutes, set by `HOLD_DURATION_SECONDS` (default `600`).
+- **Why:** long enough to pay a fee online, short enough that abandoned holds come back during an
+  admission rush. It is configuration, so the school can change it without code. Tests use 1–8
+  seconds.
+
+### Confirming stands in for paying the fee; there is no payment gateway
+
+- **Brief:** admission is confirmed when the fee is paid within the hold time.
+- **Assumption:** the **Confirm Admission** button represents a successful fee payment. No real
+  payment gateway, amount or receipt is involved.
+- **Why:** a gateway needs merchant credentials and callbacks that a take-home can't have. What
+  matters for the seat rules is that confirmation is server-checked, rejected after expiry, and
+  safe to repeat. A real integration would call the same `confirm` operation from the gateway's
+  success webhook, which is why confirmation is idempotent (below).
+
+### Applications are never deleted
+
+- **Brief:** a seat not paid for in time "opens up for others".
+- **Assumption:** a hold is never deleted. It moves through
+  `HELD → CONFIRMED`, `HELD → EXPIRED` or `HELD → CANCELLED`, and the row stays as history. A
+  database trigger blocks `DELETE` on holds, and another trigger blocks changes to a hold's id,
+  class, student and creation time.
+- **Why:** an admission office needs an audit trail of who applied, when, and what happened. A
+  released seat is shown by the status, not by removing the row. My applications shows current
+  and past applications.
+
+### One active application per student per class
+
+- **Assumption:** a student may have at most one `HELD` or `CONFIRMED` application per class.
+  Another attempt gets `409 DUPLICATE_APPLICATION`, and the UI links to the existing application.
+  The same student may apply to different classes, and may apply again to the same class after an
+  earlier hold expired or was cancelled.
+- **Why:** one child can't take two seats in one shift, but guardians often apply to more than one
+  shift as a backup. The brief doesn't forbid that, so the school decides at enrolment.
+- **Enforced twice:**
+  1. Inside the locked transaction.
+  2. By a partial unique index `(class_id, student_id) WHERE status IN ('HELD','CONFIRMED')`, which
+     also stops duplicates from concurrent requests and bugs.
+
+### One confirmed admission per student
+
+- **Assumption:** a student may hold seats in several classes at once (as backups), but can be
+  **confirmed in only one class**. Once confirmed:
+  - confirming another class returns `409 ALREADY_ADMITTED`;
+  - applying to another class also returns `409 ALREADY_ADMITTED`.
+- **Why:** a child is admitted to one class and shift. Letting an admitted student hold more seats
+  would take seats from other children for nothing. Their other held seats can still be cancelled
+  and otherwise expire normally.
+- **Enforced twice:**
+  1. Inside the locked transaction, before applying or confirming.
+  2. By a partial unique index `(student_id) WHERE status = 'CONFIRMED'`. Confirms in different
+     classes lock different class rows, so only the index can stop a student confirming two
+     classes at the same instant. A test confirms one student's four holds simultaneously across
+     three service processes and gets exactly one admission.
+- The UI shows this up front: an "Admission confirmed" banner on the class list, "Already admitted
+  to …" instead of Apply Now on other classes, and a disabled Confirm (with Cancel still allowed) on
+  any other held seat.
+
+### Class IDs are numbers
+
+- **Assumption:** classes are identified by a database-generated positive integer (`1`, `2`, …)
+  instead of a UUID. Hold IDs stay UUIDs.
+- **Why:** staff and guardians read and say class numbers ("Class #3"); a UUID is unusable for
+  that. Hold IDs remain UUIDs because they act as unguessable references.
+- Existing data was migrated in place: classes were numbered in creation order and every hold was
+  remapped in one transaction. The migration was rehearsed on a copy of the Neon database first.
+
+### Confirming is idempotent
+
+- **Assumption:** confirming an already-confirmed application returns `200` with the same body. It
+  doesn't fail, and the confirmation time doesn't change.
+- **Why:** a guardian may double-click, or retry after a network timeout without knowing whether
+  the first attempt worked. A payment webhook is usually delivered at least once. All of these
+  should be safe.
+- Confirming an `EXPIRED` application returns `409 HOLD_EXPIRED`. Confirming a `CANCELLED` one
+  returns `409 HOLD_NOT_ACTIVE`. Confirming another student's application returns
+  `403 HOLD_NOT_OWNED`.
+
+### Cancellation rules
+
+- **Assumption:** only the student who made the application can cancel it, and only while it is
+  `HELD`. Cancelling releases the seat immediately. Cancelling again is idempotent (`204`).
+  A `CONFIRMED` application can't be cancelled (`409 HOLD_ALREADY_CONFIRMED`), and an `EXPIRED`
+  one can't either (`409 HOLD_EXPIRED`).
+- **Why:** once the fee is paid, giving up a seat is a refund and withdrawal process with the
+  school, not a button. Cancelling a hold lets a guardian who changed their mind free the seat for
+  someone else without waiting out the timer. The UI asks for confirmation first.
+
+### Expiry uses database time, stored in UTC
+
+- **Assumption:** every time decision uses the **database server's clock**:
+  - `created_at`/`expires_at` are set from `clock_timestamp()` inside the transaction.
+  - Seat counts treat a hold as active only while `expires_at > now()`.
+- All timestamps are `timestamptz` and the API returns them as UTC ISO-8601 (`…Z`). The browser
+  only formats them in local time.
+- **Why:** with several service instances and thousands of browsers, only one clock can be
+  trusted. The browser countdown is shown for convenience and is computed from the server's
+  `expiresAt`. The UI never treats a hold as expired until the server says so.
+- **Expiry is lazy; there is no background job.** An expired hold stops counting toward capacity
+  the moment its time passes, because every count compares `expires_at` with database time. Reads
+  report it as `EXPIRED` straight away. The stored status changes to `EXPIRED` during the next seat
+  change for that class, including a rejected one. A scheduled job isn't needed for correctness
+  and would be one more moving part.
+
+### Admin capabilities
+
+- **Brief:** the admin does everything from the UI.
+- **Assumption:** the admin creates classes, setting name and seats, and watches live seat counts.
+  There is no admin login, and no screens for editing or closing a class or listing a class's
+  applicants.
+- **Why:** these are the admin actions the admission rules depend on. The others are listed as
+  known limitations.
+
+## Concurrency strategy (PostgreSQL)
+
+- **Brief:** thousands of guardians apply at the same moment.
+- **Rule:** for every class, `active HELD + CONFIRMED ≤ totalSeats`, across any number of requests
+  and any number of service instances.
+- **How:** every operation that can change seat occupancy (apply, confirm, cancel) runs in one
+  READ COMMITTED transaction:
+  1. Set `lock_timeout`.
+  2. `SELECT … FOR UPDATE` on the **class row**. This makes requests for the same class run one at
+     a time.
+  3. Read `clock_timestamp()` after the lock.
+  4. Mark this class's expired holds as `EXPIRED`.
+  5. Check for a duplicate application and count the occupied seats.
+  6. Insert or update the hold, then commit.
+- **Lock order is always class row, then hold row**, so operations can't deadlock. Different classes
+  lock different rows and proceed in parallel.
+- **Why a row lock:**
+  - Not an in-memory mutex or Redis: those don't protect multiple instances or need extra
+    infrastructure.
+  - Not optimistic retries: under thousands of competing requests these would mostly fail and
+    retry.
+  - Not SERIALIZABLE: equivalent here, but it gives serialization errors instead of a simple wait.
+  - The lock lives in the database every instance already shares, so correctness doesn't depend on
+    how many service instances run.
+- **Evidence:**
+  - Tests run against real PostgreSQL with three separate service processes. 100 students
+    applying for 10 seats produced exactly 10 holds and 90 `SEATS_FULL`, repeated for 20 rounds.
+  - Removing `FOR UPDATE` made those tests fail: 12 holds were sold for 10 seats. Switching to
+    REPEATABLE READ also oversold.
+- **Overload:** if a request waits longer than `RESERVATION_LOCK_TIMEOUT_MS` (default 5 s), it fails
+  with `503 SERVICE_BUSY` and `Retry-After: 1`, and nothing is written. It is never queued
+  indefinitely.
+
+## Architecture
+
+### .NET API in front of a Node.js + Prisma database service
+
+- **Stack used:** React (Vite, TypeScript, Tailwind CSS) → ASP.NET Core 8 public API → Node.js 22
+  TypeScript service using Prisma ORM 7 → PostgreSQL. This follows the technology list and
+  architecture diagram I was asked to build: ASP.NET Core 8 and Node.js/Prisma, with no Entity
+  Framework Core.
+- **Responsibilities:**
+  - The **.NET API** is the only public backend. It does HTTP validation, the student-identity
+    rules, the RFC 9457 error format, CORS and health checks.
+  - The **Node service** is internal. It owns all database access and the reservation engine.
+  - They talk over HTTP with a shared `X-Internal-Api-Key`. The Node service has no public port.
+- **Possible compliance concern:** if the reviewers' original brief expected the backend to be a
+  single ASP.NET Core application with direct database access, this hybrid adds an extra network
+  hop and a second runtime for the same feature set.
+  - The two layers are deliberately thin and separate. The reservation logic and its locking are
+    in one place (`database-service/src/services/hold.service.ts`).
+  - The .NET layer only translates contracts and errors.
+  - Collapsing it into one .NET service would mean porting that one transaction to ADO.NET or
+    Dapper with the same SQL. The public API and the UI would not change.
+  - This is flagged so reviewers can judge it rather than discover it.
+
+### Data-access details
+
+- No Entity Framework Core. The .NET API never connects to PostgreSQL.
+- Prisma 7 with the `pg` driver adapter. Seat-changing operations use parameterised `$queryRaw`
+  inside an interactive transaction, because Prisma's query API can't express `FOR UPDATE`.
+- Capacity is never stored. `heldSeats`, `confirmedSeats` and `availableSeats` are computed by
+  counting rows (view `admission_class_availability`), so there's no counter that can drift.
+- Constraints Prisma can't express are written as SQL in a migration: CHECKs on seats, name and
+  student ID, the partial unique index, history triggers and the availability view. Migrations
+  are applied with `prisma migrate deploy`; `db push` is never used.
+- PostgreSQL is Neon by default (pooled URL at runtime, direct URL for migrations, TLS
+  `verify-full`). A local PostgreSQL 18 container is available through the `local-db` compose
+  profile. The schema is tested on PostgreSQL 17 and 18.
+
+## Public API decisions
+
+- Eight endpoints. The response bodies are kept minimal; for example `GET /holds/{id}` does not
+  return the student ID. See the README for the full contracts.
+- Errors are `application/problem+json` (RFC 9457) with a stable `code`, so the UI never has to
+  parse messages. Unknown JSON fields and numbers sent as strings are rejected, not ignored.
+- `DELETE /holds/{id}` cancels. It returns `204` and doesn't remove the record (see Applications
+  are never deleted).
+- `GET /holds/{id}` doesn't need the student ID, so a confirmation link can be opened on another
+  device. It returns no personal data. Only confirm, cancel and "my applications" need the ID.
+
+## UI decisions
+
+- Seat counts on the class list refresh every 3 seconds, never with overlapping requests. A failed
+  refresh keeps the last numbers with a clear "may be out of date" warning, so stale counts are
+  never shown as live.
+- A held application rechecks the server every 5 seconds, immediately when the countdown reaches
+  zero, then every 2 seconds until the server reports a final status. Data is also rechecked when
+  the tab regains focus or the network reconnects.
+- After a browser refresh, the student ID comes back from `localStorage` and the application from
+  the server via the URL. Nothing about an application's state is kept only in the browser.
+- The site opens on a welcome screen that asks for the birth registration number before any
+  student page is shown. It explains the three steps (apply, seat held, confirm), counts digits as
+  they are typed, and accepts spaces and dashes. Admin pages are reachable without a number.
+- The class list has search (by name or number), Open/Full filters and sorting, a low-seats
+  warning, and summary counts. The application page shows a three-step progress tracker and the
+  next action to take.
 
 ## Versions
 
-- **Prisma 7.10.1** is pinned exactly. npm's `latest` tag for `prisma` currently points to an 8.0
-  release candidate, and the brief requires Prisma 7.
-- **TypeScript 6.0.x** rather than 7.x: `typescript-eslint` 8 supports `typescript < 6.1`.
-- **React 19** satisfies "React 18+". **Tailwind CSS 4** is configured through the official
-  `@tailwindcss/vite` plugin (`@import 'tailwindcss'`), with no `tailwind.config.js` (the v4 way).
-- **.NET 8 (LTS)**, as specified. Packages pinned to 8.0.x.
-
-## Service boundaries & security
-
-- The **frontend only talks to the .NET API**. It knows nothing about the database service.
-- The **database service is internal**:
-  - In Docker it sits only on an `internal: true` network with no published port.
-  - Locally it binds to `127.0.0.1` by default.
-  - Every request, including health checks, must carry `X-Internal-Api-Key`, compared in
-    constant time. This is defence in depth, not a replacement for network isolation.
-- Health responses never include raw database errors. These are logged server-side only.
-- Secrets live only in git-ignored `.env` files, user-secrets, or compose environment. The API
-  refuses to start (`ValidateOnStart`) when `DatabaseService:ApiKey` is missing or shorter than 16
-  characters.
-
-## .NET
-
-- No Entity Framework Core. The API has no direct database access, by design.
-- `HttpClientFactory` typed client (`IDatabaseServiceClient`) configured from validated
-  `DatabaseServiceOptions`. Config keys map to env vars with `__` (e.g. `DatabaseService__BaseUrl`).
-- Health checks use the built-in `Microsoft.Extensions.Diagnostics.HealthChecks`. `/health` is
-  liveness (no checks) and `/health/ready` runs the database-service check.
-- Linting is the Roslyn analyzers plus `.editorconfig` with `EnforceCodeStyleInBuild` and
-  `TreatWarningsAsErrors`. Formatting is checked with `dotnet format --verify-no-changes`.
-- CORS origins are a comma-separated `Cors__AllowedOrigins` value.
-
-## Neon PostgreSQL
-
-- PostgreSQL is hosted on **Neon**. There is no database container in `docker-compose.yml`.
-- The runtime uses Neon's **pooled** URL (`DATABASE_URL`) through `@prisma/adapter-pg` over TCP/TLS.
-  It suits a long-running server, and the code stays portable to any PostgreSQL.
-  `@prisma/adapter-neon` (WebSocket/HTTP) is meant for serverless/edge and isn't needed here.
-- The Prisma CLI uses the **direct** URL (`DIRECT_URL`, falling back to `DATABASE_URL`), because
-  migrations need session-level features that PgBouncer transaction pooling doesn't provide.
-- `sslmode=verify-full` is documented, since `pg` 8 treats `require` as `verify-full` and warns.
-  `pg` ignores Neon's `channel_binding=require` URL parameter, so `enableChannelBinding` is set in
-  code. A 10 s connection timeout covers Neon's scale-to-zero cold starts.
-- The Neon project runs **PostgreSQL 18.6**. The schema is also tested on 17. One visible
-  difference: PostgreSQL 18 reports `ON DELETE RESTRICT` violations as SQLSTATE `23001`, where 17
-  reports `23503`. Code must not depend on either one code.
-- In Docker, the database service joins an outbound-only `egress` network to reach Neon. It still
-  publishes no port. The backend stays on the `internal: true` network.
-- Migrations run in a one-off `migrate` compose job (`prisma migrate deploy`). The database service
-  starts only after that job succeeds.
-
-## Database schema
-
-- **Names**: Prisma models are PascalCase/camelCase and map to snake_case tables and columns
-  (`admission_classes`, `admission_holds.class_id`, …). The enum is `admission_status`. The custom
-  SQL was written against the names in the generated `init` migration.
-- **IDs** are `UUID` with `DEFAULT gen_random_uuid()`, so raw SQL inserts work. `created_at`
-  defaults to the database clock (`CURRENT_TIMESTAMP`). Timestamps are `TIMESTAMPTZ(3)` to match
-  JavaScript's millisecond precision.
-- **Two migrations**: `*_init_admission_schema` is generated by Prisma.
-  `*_admission_constraints` is hand-written SQL for what Prisma cannot express:
-  - CHECKs: `total_seats > 0`, non-blank name, `student_id ~ '^[0-9]{17}$'`,
-    `expires_at > created_at`, CONFIRMED ⇒ `confirmed_at` set, `confirmed_at >= created_at`.
-  - Partial unique index `(class_id, student_id) WHERE status IN ('HELD','CONFIRMED')`.
-  - History: a trigger blocks `DELETE` on `admission_holds`, and another makes `id`, `class_id`,
-    `student_id` and `created_at` immutable. Classes are protected by `ON DELETE RESTRICT`.
-  - View `admission_class_availability`, which computes capacity with `now()`.
-- Prisma 7.10 also has a `partialIndexes` **preview** feature. A custom SQL migration was used
-  instead (as requested, and to avoid depending on a preview feature). `prisma migrate diff` was
-  checked to confirm Prisma ignores the custom objects, so later `migrate dev` runs won't drop them.
-- **Class names** are unique case-sensitively ("Class 1" ≠ "class 1").
-- **Student ID** is stored as `VARCHAR(17)` text, not a number. That keeps leading zeros, and the
-  CHECK accepts ASCII digits only.
-- **Capacity** is never stored. `held_seats` counts HELD rows with `expires_at > now()`.
-  `confirmed_seats` counts CONFIRMED rows. `available_seats = total_seats - held - confirmed`.
-  `now()` is the transaction start time on the database server, so all callers share one clock.
-- **Stale holds**: a HELD row past `expires_at` stops counting toward capacity right away, but it
-  still occupies the partial unique slot until its status becomes `EXPIRED`. An index predicate
-  can't use `now()`. The hold workflow (next stage) must expire stale holds for the student/class in
-  the same transaction before inserting.
-- `CONFIRMED` requires `confirmed_at`. A later move from CONFIRMED to CANCELLED keeps `confirmed_at`
-  as history. Status-transition rules are business logic for the next stage.
-- Seeds: `Class 1` (30 seats) and `Class 2` (25 seats), via upsert by name, so re-running never
-  overwrites edits.
-
-## Node database service
-
-- ESM + `NodeNext` modules. Zod validates both the environment and every request. pino handles
-  structured JSON logs.
-- **Express 5 over Fastify.** The service is small, internal and I/O bound, so Fastify's throughput
-  advantage doesn't matter here. Express 5 forwards rejected `async` handlers to the error
-  middleware (no wrapper needed), was already in place, and is the most familiar choice for
-  reviewers. Fastify's built-in JSON-schema validation would duplicate Zod, which is the single
-  source of truth for the contracts.
-- **Layers.**
-  - `routes/` parse and validate the input, then call a service.
-  - `services/` are the only code that touches Prisma (`PrismaClassService`; hold operations sit
-    in `PendingHoldService` and return 501 for now).
-  - `types/` hold the Zod schemas and the request/response contracts (`CreateClassRequest`,
-    `ClassDto`, `HoldDto`, `ApiErrorBody`).
-  - `middleware/` covers auth, request context/logging, validation helpers and error handling.
-- **One Prisma Client** is created in `server.ts` and injected into every service. Tests inject
-  in-memory fakes through the same `createApp(deps)` function.
-- **Service authentication.** A shared secret is sent in the `X-Internal-Api-Key` header and
-  compared in constant time. It is checked **before** the JSON body is parsed, so unauthenticated
-  callers can't make the service do any work. On top of that, Docker gives the service no host
-  port and puts it on the `internal: true` network.
-- **Untrusted identity fields.**
-  - Request bodies are `strictObject`s, so caller-supplied `id`, `createdAt`, `status`,
-    `expiresAt`, etc. are rejected rather than ignored. Ids and timestamps always come from the
-    database.
-  - `X-Request-Id` is only adopted once the caller is authenticated. Otherwise the service
-    generates its own.
-  - The service trusts the API to have authenticated the end user. It never accepts user identity
-    from anyone other than the authenticated API.
-- **Error envelope.** Every error is `{ error: { code, message, details? }, requestId }`.
-  - Status mapping: 400 validation / malformed JSON, 401, 404, 409 `CLASS_NAME_TAKEN`, 413, 415,
-    501, 503 `DATABASE_UNAVAILABLE`, 500 `INTERNAL_ERROR`.
-  - 5xx responses never include internal messages. The full error is logged with the request id.
-- **Class input rules.**
-  - The name is trimmed and internal whitespace collapsed, and must then be 1–100 characters with
-    no control or zero-width characters. Duplicates are detected after this normalisation.
-  - Uniqueness is enforced by the database's unique index, not a check-then-insert, so it is safe
-    under concurrent requests. Prisma `P2002` maps to 409.
-  - `totalSeats` must be a JSON integer from 1 to 10,000. Strings such as `"30"` are rejected,
-    not coerced. The upper bound is a sanity limit, not a business rule.
-- `GET /classes` returns availability from the `admission_class_availability` view, so seat
-  counts always use database time. There is no pagination yet; the number of classes is expected
-  to stay small.
-- **Graceful shutdown** on SIGTERM/SIGINT:
-  1. Readiness flips to 503.
-  2. The server stops accepting connections and lets in-flight requests finish.
-  3. Prisma disconnects and the process exits 0.
-  - Remaining connections are force-closed after `SHUTDOWN_TIMEOUT_MS` (default 10 s).
-  - Unhandled rejections and uncaught exceptions are logged as fatal and also trigger a shutdown
-    (exit 1).
-- `getClass` and all hold operations already have routes, validation and contracts, but respond
-  `501 NOT_IMPLEMENTED` until seat reservation is built.
-- Prisma 7 specifics: the `prisma-client` generator outputs to `src/generated/prisma` (git-ignored,
-  regenerated on build), the datasource URL lives in `prisma.config.ts`, and the client uses the
-  `@prisma/adapter-pg` driver adapter.
-- The production runtime image does not include the Prisma CLI. Migrations run from the separate
-  `migrate` Docker build target.
-
-## Frontend
-
-- A single "System status" page calls `GET /health/ready` on the API to show end-to-end
-  connectivity. It is a placeholder until the admission UI exists.
-- `VITE_API_BASE_URL` is inlined at build time and is public by nature. The Docker build takes it as
-  a build arg.
-- The Docker image serves the static build with unprivileged nginx on port 5173. Dev uses Vite on
-  5173 with `strictPort`.
-
-## Known non-blocking issues
-
-- `npm audit` reports moderate advisories in **dev-only** lint tooling (`minimatch` pulled in by
-  `eslint` / `typescript-eslint`). The only fix offered is a breaking ESLint downgrade. Runtime
-  dependencies are unaffected.
+- Prisma **7.10.1** is pinned, because npm's `latest` tag pointed to an 8.0 release candidate.
+- TypeScript **6.0.x**, because `typescript-eslint` 8 doesn't support 6.1+ yet.
+- React **19** satisfies "React 18+". Tailwind CSS **4** via the official Vite plugin. .NET **8**
+  LTS.
+- MSW **3.0.3** (tests only), pinned one release behind the newest, which was 3 days old.

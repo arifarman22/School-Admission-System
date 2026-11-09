@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { HOLD_SECONDS, OTHER_STUDENT, STUDENT, setupFakeBackend } from '../test/fakeBackend';
+import { OTHER_STUDENT, STUDENT, setupFakeBackend } from '../test/fakeBackend';
 import { advance, detail, findCard, renderApp, stat, installFakeClock } from '../test/renderApp';
 
 const api = setupFakeBackend();
@@ -46,13 +46,19 @@ describe('6. Apply Now', () => {
   it('asks for a student ID first and sends no request without one', async () => {
     api.backend.addClass('Class 6', 2);
     const { user } = renderApp('/classes');
+
+    expect(screen.getByLabelText('Birth registration number')).toHaveFocus();
+    expect(screen.queryByRole('article', { name: 'Class 6' })).not.toBeInTheDocument();
+    expect(api.backend.requests).toHaveLength(0);
+
+    await user.type(screen.getByLabelText('Birth registration number'), STUDENT);
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(
       within(await findCard('Class 6')).getByRole('button', { name: 'Apply now for Class 6' }),
     );
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(/enter your 17-digit/i);
-    expect(screen.getByLabelText('Birth registration number')).toHaveFocus();
-    expect(api.backend.requests.some((r) => r.method === 'POST')).toBe(false);
+    await screen.findByRole('timer');
+    const post = api.backend.requests.find((r) => r.method === 'POST')!;
+    expect(post.studentId).toBe(STUDENT);
   });
 
   it('shows progress and sends exactly one request for repeated clicks', async () => {
@@ -114,6 +120,99 @@ describe('7. admission details', () => {
   });
 });
 
+describe('one admission per student', () => {
+  it('closes applying everywhere else once the student is admitted', async () => {
+    const admittedTo = api.backend.addClass('Class 6 - Morning Shift', 5);
+    api.backend.addClass('Class 7 - Day Shift', 5);
+    api.backend.addHold(admittedTo.id, STUDENT, { status: 'CONFIRMED' });
+    renderApp('/classes', { studentId: STUDENT });
+
+    expect(
+      await screen.findByText('Admission confirmed: Class 6 - Morning Shift'),
+    ).toBeInTheDocument();
+    const other = await findCard('Class 7 - Day Shift');
+    await waitFor(() =>
+      expect(within(other).getByRole('note')).toHaveTextContent(
+        'Already admitted to Class 6 - Morning Shift. A student can join only one class.',
+      ),
+    );
+    expect(within(other).queryByRole('button', { name: /apply/i })).not.toBeInTheDocument();
+    expect(within(await findCard('Class 6 - Morning Shift')).getByRole('note')).toHaveTextContent(
+      'You are admitted to this class.',
+    );
+  });
+
+  it('explains a 409 ALREADY_ADMITTED from the server when applying', async () => {
+    const first = api.backend.addClass('Class 6', 5);
+    api.backend.addClass('Class 7', 5);
+    const { user } = renderApp('/classes', { studentId: STUDENT });
+    const card = await findCard('Class 7');
+    api.backend.addHold(first.id, STUDENT, { status: 'CONFIRMED' });
+
+    await user.click(within(card).getByRole('button', { name: 'Apply now for Class 7' }));
+    expect(await within(card).findByRole('alert')).toHaveTextContent(
+      'A student can be admitted to only one class.',
+    );
+    expect(api.backend.requests.filter((r) => r.method === 'POST')).toHaveLength(1);
+  });
+
+  it('blocks confirming a second class but still allows cancelling it', async () => {
+    const a = api.backend.addClass('Class 6', 5);
+    const b = api.backend.addClass('Class 7', 5);
+    api.backend.addHold(a.id, STUDENT, { status: 'CONFIRMED' });
+    const second = api.backend.addHold(b.id, STUDENT);
+    const { user } = await openHold(second.holdId);
+
+    expect(await screen.findByText('Already admitted to Class 6')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Admission' })).toBeDisabled();
+    const cancel = screen.getByRole('button', { name: 'Cancel Application' });
+    expect(cancel).toBeEnabled();
+
+    await user.click(cancel);
+    await user.click(screen.getByRole('button', { name: 'Yes, cancel application' }));
+    expect(await screen.findByText('Application CANCELLED')).toBeInTheDocument();
+    expect(api.backend.holdStatus(second.holdId)).toBe('CANCELLED');
+    expect(api.backend.requests.some((r) => r.path.endsWith('/confirm'))).toBe(false);
+  });
+});
+
+describe('application progress', () => {
+  it('shows where the application is and what to do next', async () => {
+    const cls = api.backend.addClass('Class 6', 3);
+    const hold = api.backend.addHold(cls.id, STUDENT);
+    const { user } = await openHold(hold.holdId);
+
+    const progress = screen.getByRole('list', { name: 'Application progress' });
+    expect(within(progress).getByText('Applied')).toHaveTextContent('Applied: completed');
+    expect(within(progress).getByText('Seat held')).toHaveTextContent('Seat held: in progress');
+    expect(within(progress).getByText('Admission confirmed')).toHaveTextContent(
+      'Admission confirmed: not started',
+    );
+    expect(
+      screen.getByText(/pay the admission fee, then press Confirm Admission/i),
+    ).toBeInTheDocument();
+    expect(detail('Class number')).toBe(`#${cls.id}`);
+
+    await user.click(screen.getByRole('button', { name: 'Confirm Admission' }));
+    await waitFor(() =>
+      expect(within(progress).getByText('Admission confirmed')).toHaveTextContent(
+        'Admission confirmed: completed',
+      ),
+    );
+    expect(screen.queryByText(/pay the admission fee/i)).not.toBeInTheDocument();
+  });
+
+  it('marks an expired hold as not completed', async () => {
+    const cls = api.backend.addClass('Class 6', 3);
+    const hold = api.backend.addHold(cls.id, STUDENT, { expiresAt: Date.now() - 1_000 });
+    await openHold(hold.holdId);
+    const progress = screen.getByRole('list', { name: 'Application progress' });
+    expect(within(progress).getByText('Hold expired')).toHaveTextContent(
+      'Hold expired: not completed',
+    );
+  });
+});
+
 describe('8. countdown timer', () => {
   it('counts down every second from the server expiresAt', async () => {
     const cls = api.backend.addClass('Class 6', 3);
@@ -149,11 +248,12 @@ describe('8. countdown timer', () => {
 describe('9. expired hold UI', () => {
   it('expires without a reload, disables confirmation and releases the seat', async () => {
     const cls = api.backend.addClass('Class 6', 1);
-    const hold = api.backend.addHold(cls.id, STUDENT);
+    const hold = api.backend.addHold(cls.id, STUDENT, { expiresAt: Date.now() + 30_000 });
     await openHold(hold.holdId);
     await waitFor(() => expect(detail('Seats available')).toBe('0 of 1'));
+    expect(timer()).toBe('00:30');
 
-    await advance(HOLD_SECONDS * 1000);
+    await advance(30_000);
     await waitFor(() => expect(finalStatus()).toBe('EXPIRED'));
 
     expect(screen.queryByRole('timer')).not.toBeInTheDocument();
@@ -332,7 +432,7 @@ describe('12. My Applications', () => {
     api.backend.requests.length = 0;
 
     renderApp('/me/applications');
-    expect(await screen.findByText('Student identity required')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
     expect(api.backend.requests.filter((r) => r.path === '/me/holds')).toHaveLength(0);
   });
 });
@@ -376,7 +476,7 @@ describe('13. browser refresh recovery', () => {
   it('ignores a tampered stored ID instead of sending it', async () => {
     window.localStorage.setItem('school-admission.studentId', '12345');
     renderApp('/me/applications');
-    expect(await screen.findByText('Student identity required')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: /welcome/i })).toBeInTheDocument();
     expect(api.backend.requests.filter((r) => r.studentId !== null)).toHaveLength(0);
   });
 });
@@ -525,7 +625,11 @@ describe('16. X-Student-Id header inclusion', () => {
         r.path === '/me/holds',
     );
     expect(
-      new Set(studentActions.map((r) => `${r.method} ${r.path.replace(/[0-9a-f-]{36}/g, ':id')}`)),
+      new Set(
+        studentActions.map(
+          (r) => `${r.method} ${r.path.replace(/[0-9a-f-]{36}|(?<=\/classes\/)[0-9]+/g, ':id')}`,
+        ),
+      ),
     ).toEqual(
       new Set([
         'POST /classes/:id/holds',

@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import type { ReactElement } from 'react';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter, RouterProvider, type RouteObject } from 'react-router';
 import { vi } from 'vitest';
 import { StudentIdProvider } from '../hooks/StudentIdProvider';
 import { apiBaseUrl } from '../utils/config';
@@ -71,8 +70,11 @@ export function mockApi(handlers: Record<string, Responder | Responder[]>) {
 }
 
 export function renderRoutes(
-  routes: { path: string; element: ReactElement }[],
-  { initialPath = routes[0]!.path, studentId }: { initialPath?: string; studentId?: string } = {},
+  routes: RouteObject[],
+  {
+    initialPath = routes[0]!.path ?? '/',
+    studentId,
+  }: { initialPath?: string; studentId?: string } = {},
 ) {
   if (studentId) {
     window.localStorage.setItem('school-admission.studentId', studentId);
