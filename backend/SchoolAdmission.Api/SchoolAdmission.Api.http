@@ -1,0 +1,7 @@
+@host = http://localhost:8080
+
+### Liveness
+GET {{host}}/health
+
+### Readiness (calls the internal database service)
+GET {{host}}/health/ready
