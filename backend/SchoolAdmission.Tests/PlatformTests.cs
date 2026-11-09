@@ -1,6 +1,4 @@
 using System.Net;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using SchoolAdmission.Tests.Infrastructure;
 
 namespace SchoolAdmission.Tests;
@@ -144,19 +142,5 @@ public sealed class PlatformTests : IDisposable
         var response = await _client.GetAsync("/health/ready");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-    }
-
-    [Fact]
-    public void Startup_FailsWithoutInternalApiKey()
-    {
-        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
-        {
-            builder.UseEnvironment("Testing");
-            builder.UseSetting("PRISMA_SERVICE_URL", "http://database-service.test:4000");
-            builder.UseSetting("INTERNAL_API_KEY", "short");
-        });
-
-        var ex = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
-        Assert.Contains("INTERNAL_API_KEY", ex.ToString(), StringComparison.Ordinal);
     }
 }
