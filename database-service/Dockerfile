@@ -14,7 +14,7 @@ RUN npm run build
 FROM build AS migrate
 ENV NODE_ENV=production
 USER node
-CMD ["npx", "prisma", "migrate", "deploy"]
+CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 FROM build AS prod-deps
 RUN npm prune --omit=dev

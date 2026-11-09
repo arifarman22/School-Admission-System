@@ -1,0 +1,13 @@
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:${POSTGRES_DEBUG_PORT:-5432}:5432'
+    networks: [internal, debug]
+
+  database-service:
+    ports:
+      - '127.0.0.1:${DATABASE_SERVICE_DEBUG_PORT:-4000}:4000'
+    networks: [internal, debug]
+
+networks:
+  debug:

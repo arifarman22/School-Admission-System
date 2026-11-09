@@ -1,35 +1,77 @@
 name: school-admission
 
+x-database-url: &database-url ${DATABASE_URL:-postgresql://${POSTGRES_USER:-admission}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-school_admission}}
+
 services:
+  postgres:
+    image: postgres:18-alpine
+    profiles: [local-db]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-admission}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-school_admission}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks: [internal]
+
   migrate:
     build:
       context: ./database-service
       target: migrate
     restart: 'no'
     environment:
+      DATABASE_URL: *database-url
       DIRECT_URL: ${DIRECT_URL:-}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Neon pooled URL) in .env}
-    networks: [egress]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    networks: [internal, egress]
 
   database-service:
-    build: ./database-service
+    build:
+      context: ./database-service
+      target: runtime
     restart: unless-stopped
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 4000
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Neon pooled URL) in .env}
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
-      LOG_LEVEL: info
+      DATABASE_URL: *database-url
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env (copy .env.example)}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
       HOLD_DURATION_SECONDS: ${HOLD_DURATION_SECONDS:-600}
       RESERVATION_LOCK_TIMEOUT_MS: ${RESERVATION_LOCK_TIMEOUT_MS:-5000}
       RESERVATION_TX_TIMEOUT_MS: ${RESERVATION_TX_TIMEOUT_MS:-15000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      migrate:
+        condition: service_completed_successfully
     expose:
       - '4000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/health/ready',{headers:{'x-internal-api-key':process.env.INTERNAL_API_KEY}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
     networks: [internal, egress]
 
   backend:
@@ -38,14 +80,20 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
-      DatabaseService__BaseUrl: http://database-service:4000
-      DatabaseService__ApiKey: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      PRISMA_SERVICE_URL: http://database-service:4000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env (copy .env.example)}
       Cors__AllowedOrigins: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
     depends_on:
       database-service:
         condition: service_healthy
     ports:
-      - '8080:8080'
+      - '${BACKEND_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD', 'bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health/ready HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && head -n 1 <&3 | grep -q " 200 "']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     networks: [public, internal]
 
   frontend:
@@ -55,10 +103,20 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
-      - '5173:5173'
+      - '${FRONTEND_PORT:-5173}:5173'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:5173/healthz']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks: [public]
+
+volumes:
+  pgdata:
 
 networks:
   public:
