@@ -56,12 +56,22 @@ export class InMemoryClassService implements ClassService {
 
   async createClass(input: CreateClassInput): Promise<ClassDto> {
     this.createCalls++;
-    if (this.classes.some((c) => c.name === input.name)) {
-      throw new ConflictError('CLASS_NAME_TAKEN', `A class named "${input.name}" already exists`);
+    if (
+      this.classes.some(
+        (c) =>
+          c.name.toLowerCase() === input.name.toLowerCase() &&
+          c.section.toLowerCase() === input.section.toLowerCase(),
+      )
+    ) {
+      throw new ConflictError(
+        'CLASS_SECTION_TAKEN',
+        `Section "${input.section}" of "${input.name}" already exists`,
+      );
     }
     const created: ClassDto = {
       id: this.nextId++,
       name: input.name,
+      section: input.section,
       totalSeats: input.totalSeats,
       heldSeats: 0,
       confirmedSeats: 0,

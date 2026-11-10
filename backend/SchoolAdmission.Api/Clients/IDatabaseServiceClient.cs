@@ -4,7 +4,7 @@ public interface IDatabaseServiceClient
 {
     Task<DatabaseServiceHealth> GetHealthAsync(CancellationToken cancellationToken = default);
 
-    Task<InternalClass> CreateClassAsync(string name, int totalSeats, CancellationToken cancellationToken = default);
+    Task<InternalClass> CreateClassAsync(string name, string section, int totalSeats, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<InternalClass>> ListClassesAsync(CancellationToken cancellationToken = default);
 

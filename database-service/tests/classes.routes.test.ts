@@ -42,6 +42,7 @@ describe('POST /classes', () => {
       data: {
         id: 1,
         name: 'Class 3',
+        section: 'A',
         totalSeats: 40,
         heldSeats: 0,
         confirmedSeats: 0,
@@ -183,10 +184,46 @@ describe('POST /classes', () => {
       const res = await post({ name, totalSeats: 20 });
       expect(res.status).toBe(409);
       expect(res.body.error).toEqual({
-        code: 'CLASS_NAME_TAKEN',
-        message: 'A class named "Class 7" already exists',
+        code: 'CLASS_SECTION_TAKEN',
+        message: 'Section "A" of "Class 7" already exists',
       });
     }
+  });
+
+  it('creates several sections of the same class and normalises the section', async () => {
+    const { post } = setup();
+    const a = await post({ name: 'Class 1', section: ' a ', totalSeats: 30 });
+    const b = await post({ name: 'Class 1', section: 'B', totalSeats: 25 });
+    expect(a.status).toBe(201);
+    expect(a.body.data.section).toBe('A');
+    expect(b.status).toBe(201);
+    expect(b.body.data.section).toBe('B');
+  });
+
+  it('returns 409 when the same section of a class already exists, ignoring case', async () => {
+    const { post } = setup();
+    expect((await post({ name: 'Class 1', section: 'A', totalSeats: 30 })).status).toBe(201);
+    for (const [name, section] of [
+      ['Class 1', 'A'],
+      ['class 1', 'a'],
+    ]) {
+      const res = await post({ name, section, totalSeats: 30 });
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('CLASS_SECTION_TAKEN');
+    }
+  });
+
+  it.each([
+    ['empty', '', 'section must not be empty'],
+    ['too long', 'x'.repeat(21), 'section must be at most 20 characters'],
+    ['punctuation', 'A!', 'section may only contain letters, numbers, spaces and hyphens'],
+    ['a number', 1, 'section must be a string'],
+  ])('rejects a section that is %s', async (_label, section, message) => {
+    const { post, classService } = setup();
+    const res = await post({ name: 'Class 1', section, totalSeats: 10 });
+    expect(res.status).toBe(400);
+    expect(res.body.error.details).toEqual([{ path: 'section', message }]);
+    expect(classService.createCalls).toBe(0);
   });
 
   it('does not reach the service without the internal API key', async () => {

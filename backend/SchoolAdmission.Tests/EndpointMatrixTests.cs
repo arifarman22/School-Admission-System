@@ -38,6 +38,7 @@ public sealed class EndpointMatrixTests : IDisposable
     {
         id = ClassId,
         name = "Class 6 - Morning Shift",
+        section = "A",
         totalSeats = 120,
         heldSeats = 15,
         confirmedSeats = 80,
@@ -63,6 +64,7 @@ public sealed class EndpointMatrixTests : IDisposable
             holdId = HoldId,
             classId = ClassId,
             className = "Class 6 - Morning Shift",
+            section = "A",
             studentId = StudentId,
             status = "HELD",
             createdAt = "2026-11-01T04:00:00.000Z",
@@ -72,13 +74,13 @@ public sealed class EndpointMatrixTests : IDisposable
     };
 
     private static readonly string[] ClassFields =
-        ["id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats"];
+        ["id", "name", "section", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats"];
 
     private static readonly Dictionary<string, Endpoint> Endpoints = new()
     {
         ["CreateClass"] = new("POST", "/classes", """{"name":"Class 6 - Morning Shift","totalSeats":120}""", false,
             HttpMethod.Post, "/classes", HttpStatusCode.Created, Class, HttpStatusCode.Created, false,
-            ["id", "name", "totalSeats"]),
+            ["id", "name", "section", "totalSeats"]),
         ["ListClasses"] = new("GET", "/classes", null, false,
             HttpMethod.Get, "/classes", HttpStatusCode.OK, new[] { Class }, HttpStatusCode.OK, true, ClassFields),
         ["GetClass"] = new("GET", $"/classes/{ClassId}", null, false,
@@ -97,7 +99,7 @@ public sealed class EndpointMatrixTests : IDisposable
             []),
         ["MyHolds"] = new("GET", "/me/holds", null, true,
             HttpMethod.Get, $"/students/{StudentId}/holds", HttpStatusCode.OK, StudentHolds, HttpStatusCode.OK, true,
-            ["holdId", "classId", "className", "status", "expiresAt"]),
+            ["holdId", "classId", "className", "section", "status", "expiresAt"]),
     };
 
     public static TheoryData<string> AllEndpoints => ToTheoryData(Endpoints.Keys);

@@ -7,7 +7,7 @@ public static class ErrorCodes
     public const string ValidationError = "VALIDATION_ERROR";
     public const string StudentIdRequired = "STUDENT_ID_REQUIRED";
     public const string NotFound = "NOT_FOUND";
-    public const string ClassNameTaken = "CLASS_NAME_TAKEN";
+    public const string ClassSectionTaken = "CLASS_SECTION_TAKEN";
     public const string SeatsFull = "SEATS_FULL";
     public const string DuplicateApplication = "DUPLICATE_APPLICATION";
     public const string AlreadyAdmitted = "ALREADY_ADMITTED";

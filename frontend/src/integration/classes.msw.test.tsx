@@ -98,6 +98,7 @@ describe('2. class creation form', () => {
     expect(screen.getByText('Enter the total number of seats.')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Class name'), '   ');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '0');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
     expect(await screen.findByText('A class needs at least 1 seat.')).toBeInTheDocument();
@@ -113,13 +114,16 @@ describe('2. class creation form', () => {
   it('creates a class, normalises the name, resets the form and shows it in the class list', async () => {
     const { user, router } = renderApp('/admin/classes/new', { studentId: STUDENT });
     await user.type(screen.getByLabelText('Class name'), '  Class 6   Morning  ');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '40');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
 
     expect(await screen.findByText('Class created')).toBeInTheDocument();
     expect(screen.getByLabelText('Class name')).toHaveValue('');
     const post = api.backend.requests.find((r) => r.method === 'POST' && r.path === '/classes')!;
-    await waitFor(() => expect(post.body).toEqual({ name: 'Class 6 Morning', totalSeats: 40 }));
+    await waitFor(() =>
+      expect(post.body).toEqual({ name: 'Class 6 Morning', section: 'A', totalSeats: 40 }),
+    );
 
     await act(() => router.navigate('/classes'));
     const card = await findCard('Class 6 Morning');
@@ -127,15 +131,17 @@ describe('2. class creation form', () => {
     expect(stat(card, 'Available')).toBe('40');
   });
 
-  it('shows the 409 duplicate-name conflict on the name field', async () => {
+  it('blocks a duplicate section of an existing class on the section field', async () => {
     api.backend.addClass('Class 7', 30);
     const { user } = renderApp('/admin/classes/new');
     await user.type(screen.getByLabelText('Class name'), 'Class 7');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '25');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
 
-    expect(await screen.findByText('A class with this name already exists.')).toBeInTheDocument();
-    expect(screen.getByLabelText('Class name')).toHaveAttribute('aria-invalid', 'true');
+    expect(await screen.findByText('Section A already exists for Class 7.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Section')).toHaveAttribute('aria-invalid', 'true');
+    expect(api.backend.requests.filter((r) => r.method === 'POST')).toHaveLength(0);
     expect(screen.queryByText('Class created')).not.toBeInTheDocument();
   });
 
@@ -147,6 +153,7 @@ describe('2. class creation form', () => {
     );
     const { user } = renderApp('/admin/classes/new');
     await user.type(screen.getByLabelText('Class name'), 'Class 8');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '50');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
 
@@ -157,6 +164,7 @@ describe('2. class creation form', () => {
     api.server.use(http.post(api.backend.url('/classes'), () => HttpResponse.error()));
     const { user } = renderApp('/admin/classes/new');
     await user.type(screen.getByLabelText('Class name'), 'Class 9');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '20');
     await user.click(screen.getByRole('button', { name: 'Create class' }));
 
@@ -170,13 +178,14 @@ describe('2. class creation form', () => {
       http.post(api.backend.url('/classes'), async () => {
         await new Promise<void>((resolve) => (release = resolve));
         return HttpResponse.json(
-          { id: crypto.randomUUID(), name: 'Class 10', totalSeats: 5 },
+          { id: 10, name: 'Class 10', section: 'A', totalSeats: 5 },
           { status: 201 },
         );
       }),
     );
     const { user } = renderApp('/admin/classes/new');
     await user.type(screen.getByLabelText('Class name'), 'Class 10');
+    await user.type(screen.getByLabelText('Section'), 'A');
     await user.type(screen.getByLabelText('Total seats'), '5');
     const submit = screen.getByRole('button', { name: 'Create class' });
     await user.click(submit);

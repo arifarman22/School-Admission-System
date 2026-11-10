@@ -91,6 +91,7 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
       expect.stringMatching(/_admission_constraints$/),
       expect.stringMatching(/_numeric_class_ids$/),
       expect.stringMatching(/_one_admission_per_student$/),
+      expect.stringMatching(/_class_sections$/),
     ]);
   });
 
@@ -140,7 +141,7 @@ describe.skipIf(!url)('database schema (PostgreSQL)', () => {
         '23505',
         'INSERT INTO admission_classes (name, total_seats) VALUES ($1, 5)',
         ['Test Unique Class'],
-        'admission_classes_name_key',
+        'admission_classes_name_section_key',
       );
       await expectPgError(
         db,

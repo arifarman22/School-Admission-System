@@ -26,7 +26,13 @@ export function TextField({
     <div className={className}>
       <label
         htmlFor={inputId}
-        className={hideLabel ? 'sr-only' : 'block text-sm font-medium text-slate-700'}
+        className={
+          hideLabel
+            ? 'sr-only'
+            : `block text-sm font-medium text-slate-700 ${
+                rest.required ? "after:ml-0.5 after:text-rose-500 after:content-['*']" : ''
+              }`
+        }
       >
         {label}
       </label>

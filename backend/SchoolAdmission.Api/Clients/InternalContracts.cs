@@ -11,6 +11,7 @@ public sealed record InternalValidationIssue(string Path, string Message);
 public sealed record InternalClass(
     int Id,
     string Name,
+    string Section,
     int TotalSeats,
     int HeldSeats,
     int ConfirmedSeats,
@@ -30,6 +31,7 @@ public sealed record InternalStudentHold(
     string HoldId,
     int ClassId,
     string ClassName,
+    string Section,
     string StudentId,
     string Status,
     DateTimeOffset CreatedAt,

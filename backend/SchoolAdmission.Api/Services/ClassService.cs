@@ -16,8 +16,12 @@ public sealed class ClassService(IDatabaseServiceClient databaseService) : IClas
 {
     public async Task<ClassCreatedResponse> CreateAsync(CreateClassRequest request, CancellationToken cancellationToken)
     {
-        var created = await databaseService.CreateClassAsync(request.Name!, request.TotalSeats!.Value, cancellationToken);
-        return new ClassCreatedResponse(created.Id, created.Name, created.TotalSeats);
+        var created = await databaseService.CreateClassAsync(
+            request.Name!,
+            string.IsNullOrWhiteSpace(request.Section) ? CreateClassRequest.DefaultSection : request.Section,
+            request.TotalSeats!.Value,
+            cancellationToken);
+        return new ClassCreatedResponse(created.Id, created.Name, created.Section, created.TotalSeats);
     }
 
     public async Task<IReadOnlyList<ClassResponse>> ListAsync(CancellationToken cancellationToken)
@@ -30,5 +34,5 @@ public sealed class ClassService(IDatabaseServiceClient databaseService) : IClas
         ToResponse(await databaseService.GetClassAsync(classId, cancellationToken));
 
     private static ClassResponse ToResponse(InternalClass c) =>
-        new(c.Id, c.Name, c.TotalSeats, c.HeldSeats, c.ConfirmedSeats, c.AvailableSeats);
+        new(c.Id, c.Name, c.Section, c.TotalSeats, c.HeldSeats, c.ConfirmedSeats, c.AvailableSeats);
 }

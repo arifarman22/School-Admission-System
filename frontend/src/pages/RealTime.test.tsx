@@ -14,6 +14,7 @@ const HOLD_ID = '8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a';
 const cls = (heldSeats: number): AdmissionClass => ({
   id: CLASS_ID,
   name: 'Class 6 - Morning Shift',
+  section: 'A',
   totalSeats: 1,
   heldSeats,
   confirmedSeats: 0,
@@ -30,6 +31,7 @@ const hold = (status: Hold['status'], expiresAt: string): Hold => ({
 const mine = (status: StudentHold['status'], expiresAt: string): StudentHold => ({
   ...hold(status, expiresAt),
   className: cls(0).name,
+  section: 'A',
 });
 
 const routes = [

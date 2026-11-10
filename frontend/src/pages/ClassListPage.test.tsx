@@ -8,6 +8,7 @@ import { ClassListPage } from './ClassListPage';
 const morning: AdmissionClass = {
   id: 6,
   name: 'Class 6 - Morning Shift',
+  section: 'A',
   totalSeats: 120,
   heldSeats: 15,
   confirmedSeats: 80,
@@ -17,6 +18,7 @@ const morning: AdmissionClass = {
 const fullClass: AdmissionClass = {
   id: 7,
   name: 'Class 7 - Day Shift',
+  section: 'A',
   totalSeats: 40,
   heldSeats: 5,
   confirmedSeats: 35,

@@ -13,6 +13,7 @@ const HOLD_ID = '8a4e1d0c-6b3f-4e2a-9c7d-1f2e3d4c5b6a';
 const admissionClass: AdmissionClass = {
   id: CLASS_ID,
   name: 'Class 6 - Morning Shift',
+  section: 'A',
   totalSeats: 120,
   heldSeats: 15,
   confirmedSeats: 80,
@@ -40,6 +41,7 @@ const mine = (status: StudentHold['status']): StudentHold => ({
   holdId: HOLD_ID,
   classId: CLASS_ID,
   className: admissionClass.name,
+  section: 'A',
   status,
   expiresAt: inTenMinutes(),
 });
@@ -290,6 +292,7 @@ describe('my applications', () => {
       holdId: '11111111-2222-4333-8444-555555555555',
       classId: 7,
       className: 'Class 7 - Day Shift',
+      section: 'B',
       status: 'EXPIRED',
       expiresAt: '2026-11-01T04:10:00Z',
     };

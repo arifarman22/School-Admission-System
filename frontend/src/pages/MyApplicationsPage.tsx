@@ -29,7 +29,12 @@ function ApplicationList({ title, holds }: { title: string; holds: StudentHold[]
                 aria-label={`${hold.className}, ${hold.status}. View application details`}
               >
                 <div className="min-w-0">
-                  <p className="font-medium break-words text-slate-900">{hold.className}</p>
+                  <p className="font-medium break-words text-slate-900">
+                    {hold.className}
+                    <span className="ml-2 text-sm font-normal text-slate-500">
+                      Section {hold.section}
+                    </span>
+                  </p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     {hold.status === 'HELD'
                       ? `Hold expires ${formatDateTime(hold.expiresAt)}`

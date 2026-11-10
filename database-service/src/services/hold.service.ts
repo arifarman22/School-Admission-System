@@ -41,6 +41,7 @@ interface Occupancy {
 
 interface StudentHoldRow extends AdmissionHold {
   className: string;
+  section: string;
 }
 
 export function toHoldDto(hold: AdmissionHold): HoldDto {
@@ -302,6 +303,7 @@ export class PrismaHoldService implements HoldService {
       SELECT h.id::text          AS "id",
              h.class_id          AS "classId",
              c.name              AS "className",
+             c.section           AS "section",
              h.student_id        AS "studentId",
              CASE WHEN h.status = 'HELD' AND h.expires_at <= now() THEN 'EXPIRED'
                   ELSE h.status::text END AS "status",
@@ -312,6 +314,10 @@ export class PrismaHoldService implements HoldService {
       JOIN admission_classes c ON c.id = h.class_id
       WHERE h.student_id = ${studentId}
       ORDER BY h.created_at DESC, h.id`;
-    return rows.map((row) => ({ ...toHoldDto(row), className: row.className }));
+    return rows.map((row) => ({
+      ...toHoldDto(row),
+      className: row.className,
+      section: row.section,
+    }));
   }
 }

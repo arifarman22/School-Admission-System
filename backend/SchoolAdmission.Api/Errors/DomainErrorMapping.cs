@@ -8,7 +8,7 @@ public static class DomainErrorMapping
     {
         [ErrorCodes.ValidationError] = new(StatusCodes.Status400BadRequest, "Validation failed", true),
         [ErrorCodes.NotFound] = new(StatusCodes.Status404NotFound, "Not found", true),
-        [ErrorCodes.ClassNameTaken] = new(StatusCodes.Status409Conflict, "Class name already exists", true),
+        [ErrorCodes.ClassSectionTaken] = new(StatusCodes.Status409Conflict, "Class section already exists", true),
         [ErrorCodes.SeatsFull] = new(StatusCodes.Status409Conflict, "No seats available", true),
         [ErrorCodes.DuplicateApplication] = new(StatusCodes.Status409Conflict, "Active application already exists", true),
         [ErrorCodes.AlreadyAdmitted] = new(StatusCodes.Status409Conflict, "Student already admitted to another class", true),

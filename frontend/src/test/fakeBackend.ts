@@ -13,6 +13,7 @@ const CLASS_ID = /^[1-9][0-9]{0,9}$/;
 interface ClassRow {
   id: number;
   name: string;
+  section: string;
   totalSeats: number;
 }
 
@@ -118,10 +119,19 @@ export function createFakeBackend() {
     http.get(url('/classes'), () => HttpResponse.json([...classes.values()].map(availability))),
 
     http.post(url('/classes'), async ({ request }) => {
-      const body = (await request.json()) as { name?: unknown; totalSeats?: unknown };
+      const body = (await request.json()) as {
+        name?: unknown;
+        section?: unknown;
+        totalSeats?: unknown;
+      };
       const errors: Record<string, string[]> = {};
       const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ') : '';
       if (name.length === 0 || name.length > 100) errors.Name = ['Name must be 1-100 characters'];
+      const section =
+        typeof body.section === 'string' && body.section.trim() !== ''
+          ? body.section.trim().replace(/\s+/g, ' ').toUpperCase()
+          : 'A';
+      if (section.length > 20) errors.Section = ['Section must be 1-20 characters'];
       const seats = body.totalSeats;
       if (typeof seats !== 'number' || !Number.isInteger(seats) || seats < 1 || seats > 10_000) {
         errors.TotalSeats = ['TotalSeats must be between 1 and 10000'];
@@ -129,10 +139,19 @@ export function createFakeBackend() {
       if (Object.keys(errors).length > 0) {
         return problem(400, 'VALIDATION_ERROR', 'One or more validation errors occurred.', errors);
       }
-      if ([...classes.values()].some((c) => c.name === name)) {
-        return problem(409, 'CLASS_NAME_TAKEN', `A class named "${name}" already exists`);
+      const taken = [...classes.values()].some(
+        (c) =>
+          c.name.toLowerCase() === name.toLowerCase() &&
+          c.section.toLowerCase() === section.toLowerCase(),
+      );
+      if (taken) {
+        return problem(
+          409,
+          'CLASS_SECTION_TAKEN',
+          `Section "${section}" of "${name}" already exists`,
+        );
       }
-      const row = { id: nextClassId++, name, totalSeats: seats as number };
+      const row = { id: nextClassId++, name, section, totalSeats: seats as number };
       classes.set(row.id, row);
       return HttpResponse.json(row, { status: 201, headers: { Location: `/classes/${row.id}` } });
     }),
@@ -231,7 +250,11 @@ export function createFakeBackend() {
       const mine: StudentHold[] = [...holds.values()]
         .filter((h) => h.studentId === who.id)
         .sort((a, b) => b.createdAt - a.createdAt)
-        .map((h) => ({ ...publicHold(h), className: classes.get(h.classId)!.name }));
+        .map((h) => ({
+          ...publicHold(h),
+          className: classes.get(h.classId)!.name,
+          section: classes.get(h.classId)!.section,
+        }));
       return HttpResponse.json(mine);
     }),
   ];
@@ -240,8 +263,8 @@ export function createFakeBackend() {
     handlers,
     requests,
     url,
-    addClass(name: string, totalSeats: number) {
-      const row = { id: nextClassId++, name, totalSeats };
+    addClass(name: string, totalSeats: number, section = 'A') {
+      const row = { id: nextClassId++, name, section, totalSeats };
       classes.set(row.id, row);
       return row;
     },

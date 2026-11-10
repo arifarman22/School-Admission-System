@@ -42,4 +42,5 @@ export interface HoldDto {
 
 export interface StudentHoldDto extends HoldDto {
   className: string;
+  section: string;
 }

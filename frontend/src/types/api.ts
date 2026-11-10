@@ -2,18 +2,21 @@ export type HoldStatus = 'HELD' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
 
 export interface CreateClassRequest {
   name: string;
+  section: string;
   totalSeats: number;
 }
 
 export interface ClassCreated {
   id: number;
   name: string;
+  section: string;
   totalSeats: number;
 }
 
 export interface AdmissionClass {
   id: number;
   name: string;
+  section: string;
   totalSeats: number;
   heldSeats: number;
   confirmedSeats: number;
@@ -44,6 +47,7 @@ export interface StudentHold {
   holdId: string;
   classId: number;
   className: string;
+  section: string;
   status: HoldStatus;
   expiresAt: string;
 }
@@ -52,7 +56,7 @@ export type ApiErrorCode =
   | 'VALIDATION_ERROR'
   | 'STUDENT_ID_REQUIRED'
   | 'NOT_FOUND'
-  | 'CLASS_NAME_TAKEN'
+  | 'CLASS_SECTION_TAKEN'
   | 'SEATS_FULL'
   | 'DUPLICATE_APPLICATION'
   | 'ALREADY_ADMITTED'

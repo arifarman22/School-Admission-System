@@ -23,8 +23,10 @@ const filters: { value: Filter; label: string }[] = [
 ];
 
 const sorters: Record<Sort, (a: AdmissionClass, b: AdmissionClass) => number> = {
-  name: (a, b) => a.name.localeCompare(b.name),
-  available: (a, b) => b.availableSeats - a.availableSeats || a.name.localeCompare(b.name),
+  name: (a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true }) ||
+    a.section.localeCompare(b.section, undefined, { numeric: true }),
+  available: (a, b) => b.availableSeats - a.availableSeats || sorters.name(a, b),
   number: (a, b) => a.id - b.id,
 };
 
@@ -182,7 +184,7 @@ export function ClassListPage() {
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by class name or number"
+                placeholder="Search by class, section or number"
                 className="block w-full rounded-lg border border-slate-300 bg-white py-2 pr-3 pl-9 text-sm shadow-sm placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
               />
             </div>

@@ -28,9 +28,14 @@ export function ClassCard({ admissionClass, stale = false }: ClassCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-slate-500">Class #{admissionClass.id}</p>
-            <h2 id={headingId} className="text-base font-semibold break-words text-slate-900">
-              {admissionClass.name}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 id={headingId} className="text-base font-semibold break-words text-slate-900">
+                {admissionClass.name}
+              </h2>
+              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-600/20 ring-inset">
+                Section {admissionClass.section}
+              </span>
+            </div>
           </div>
           {full ? (
             <span className="shrink-0 rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-700 ring-1 ring-rose-600/20 ring-inset">

@@ -24,6 +24,7 @@ public sealed class ClassEndpointTests : IDisposable
     {
         id,
         name,
+        section = "A",
         totalSeats = 120,
         heldSeats = 15,
         confirmedSeats = 80,
@@ -41,7 +42,7 @@ public sealed class ClassEndpointTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal($"/classes/{ClassId}", response.Headers.Location?.AbsolutePath);
         var body = await JsonAssert.ReadJsonAsync(response);
-        JsonAssert.HasExactProperties(body, "id", "name", "totalSeats");
+        JsonAssert.HasExactProperties(body, "id", "name", "section", "totalSeats");
         Assert.Equal(ClassId, body.GetProperty("id").GetInt32());
         Assert.Equal("Class 6 - Morning Shift", body.GetProperty("name").GetString());
         Assert.Equal(120, body.GetProperty("totalSeats").GetInt32());
@@ -103,14 +104,40 @@ public sealed class ClassEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateClass_DuplicateName_Returns409()
+    public async Task CreateClass_DuplicateSection_Returns409()
     {
-        _factory.Database.OnError(HttpMethod.Post, "/classes", HttpStatusCode.Conflict, "CLASS_NAME_TAKEN", "A class named \"A\" already exists");
+        _factory.Database.OnError(HttpMethod.Post, "/classes", HttpStatusCode.Conflict, "CLASS_SECTION_TAKEN", "Section \"A\" of \"Class 1\" already exists");
 
-        var response = await _client.PostAsJsonAsync("/classes", new { name = "A", totalSeats = 5 });
+        var response = await _client.PostAsJsonAsync("/classes", new { name = "Class 1", section = "A", totalSeats = 5 });
 
-        var problem = await JsonAssert.ReadProblemAsync(response, 409, "CLASS_NAME_TAKEN");
-        Assert.Equal("A class named \"A\" already exists", problem.GetProperty("detail").GetString());
+        var problem = await JsonAssert.ReadProblemAsync(response, 409, "CLASS_SECTION_TAKEN");
+        Assert.Equal("Class section already exists", problem.GetProperty("title").GetString());
+        Assert.Equal("Section \"A\" of \"Class 1\" already exists", problem.GetProperty("detail").GetString());
+    }
+
+    [Theory]
+    [InlineData("""{"name": "Class 1", "section": "B", "totalSeats": 10}""", "B")]
+    [InlineData("""{"name": "Class 1", "totalSeats": 10}""", "A")]
+    [InlineData("""{"name": "Class 1", "section": "  ", "totalSeats": 10}""", "A")]
+    public async Task CreateClass_ForwardsSectionDefaultingToA(string json, string expectedSection)
+    {
+        _factory.Database.OnData(HttpMethod.Post, "/classes", InternalClass(), HttpStatusCode.Created);
+
+        var response = await _client.PostAsync("/classes", JsonAssert.JsonBody(json));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var forwarded = Assert.Single(_factory.Database.Requests);
+        Assert.Equal(expectedSection, forwarded.Json.GetProperty("section").GetString());
+    }
+
+    [Fact]
+    public async Task CreateClass_RejectsOverlongSection()
+    {
+        var response = await _client.PostAsJsonAsync("/classes", new { name = "Class 1", section = new string('x', 41), totalSeats = 5 });
+
+        var problem = await JsonAssert.ReadProblemAsync(response, 400, "VALIDATION_ERROR");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("Section", out _));
+        Assert.Empty(_factory.Database.Requests);
     }
 
     [Fact]
@@ -124,7 +151,7 @@ public sealed class ClassEndpointTests : IDisposable
         var body = await JsonAssert.ReadJsonAsync(response);
         Assert.Equal(JsonValueKind.Array, body.ValueKind);
         var item = Assert.Single(body.EnumerateArray());
-        JsonAssert.HasExactProperties(item, "id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
+        JsonAssert.HasExactProperties(item, "id", "name", "section", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
         Assert.Equal(15, item.GetProperty("heldSeats").GetInt32());
         Assert.Equal(80, item.GetProperty("confirmedSeats").GetInt32());
         Assert.Equal(25, item.GetProperty("availableSeats").GetInt32());
@@ -149,7 +176,7 @@ public sealed class ClassEndpointTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await JsonAssert.ReadJsonAsync(response);
-        JsonAssert.HasExactProperties(body, "id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
+        JsonAssert.HasExactProperties(body, "id", "name", "section", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
     }
 
     [Fact]

@@ -31,8 +31,8 @@ public sealed class DatabaseServiceClient(HttpClient httpClient, ILogger<Databas
         }
     }
 
-    public Task<InternalClass> CreateClassAsync(string name, int totalSeats, CancellationToken cancellationToken = default) =>
-        SendAsync<InternalClass>(HttpMethod.Post, "classes", new { name, totalSeats }, cancellationToken);
+    public Task<InternalClass> CreateClassAsync(string name, string section, int totalSeats, CancellationToken cancellationToken = default) =>
+        SendAsync<InternalClass>(HttpMethod.Post, "classes", new { name, section, totalSeats }, cancellationToken);
 
     public async Task<IReadOnlyList<InternalClass>> ListClassesAsync(CancellationToken cancellationToken = default) =>
         await SendAsync<List<InternalClass>>(HttpMethod.Get, "classes", null, cancellationToken);

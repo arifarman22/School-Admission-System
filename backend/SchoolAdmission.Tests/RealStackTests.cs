@@ -119,16 +119,16 @@ public sealed class RealStackTests : IDisposable
         var create = await _client.PostAsJsonAsync("/classes", new { name = $"{_tag} lifecycle", totalSeats = 3 });
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         var created = await JsonAssert.ReadJsonAsync(create);
-        JsonAssert.HasExactProperties(created, "id", "name", "totalSeats");
+        JsonAssert.HasExactProperties(created, "id", "name", "section", "totalSeats");
         var classId = created.GetProperty("id").GetInt32();
         Assert.Equal($"/classes/{classId}", create.Headers.Location?.AbsolutePath);
 
         var list = await JsonAssert.ReadJsonAsync(await _client.GetAsync("/classes"));
         var listed = Assert.Single(list.EnumerateArray(), c => c.GetProperty("id").GetInt32() == classId);
-        JsonAssert.HasExactProperties(listed, "id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
+        JsonAssert.HasExactProperties(listed, "id", "name", "section", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
 
         var one = await GetClassAsync(classId);
-        JsonAssert.HasExactProperties(one, "id", "name", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
+        JsonAssert.HasExactProperties(one, "id", "name", "section", "totalSeats", "heldSeats", "confirmedSeats", "availableSeats");
         Assert.Equal(3, one.GetProperty("availableSeats").GetInt32());
 
         var apply = await ApplyAsync(classId, student);
@@ -146,7 +146,7 @@ public sealed class RealStackTests : IDisposable
 
         var mine = await JsonAssert.ReadJsonAsync(await SendAsync(HttpMethod.Get, "/me/holds", student));
         var item = Assert.Single(mine.EnumerateArray());
-        JsonAssert.HasExactProperties(item, "holdId", "classId", "className", "status", "expiresAt");
+        JsonAssert.HasExactProperties(item, "holdId", "classId", "className", "section", "status", "expiresAt");
         Assert.Equal($"{_tag} lifecycle", item.GetProperty("className").GetString());
 
         var confirm = await SendAsync(HttpMethod.Post, $"/holds/{holdId}/confirm", student);
@@ -180,7 +180,7 @@ public sealed class RealStackTests : IDisposable
         var classId = await CreateClassAsync("errors", 1);
 
         var duplicate = await _client.PostAsJsonAsync("/classes", new { name = $"{_tag} errors", totalSeats = 5 });
-        await JsonAssert.ReadProblemAsync(duplicate, 409, "CLASS_NAME_TAKEN");
+        await JsonAssert.ReadProblemAsync(duplicate, 409, "CLASS_SECTION_TAKEN");
 
         await JsonAssert.ReadProblemAsync(await _client.PostAsJsonAsync("/classes", new { name = $"{_tag} zero", totalSeats = 0 }), 400, "VALIDATION_ERROR");
         await JsonAssert.ReadProblemAsync(await _client.GetAsync("/classes/2000000000"), 404, "NOT_FOUND");

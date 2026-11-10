@@ -11,6 +11,7 @@ export interface ClassService {
 interface ClassAvailabilityRow {
   id: number;
   name: string;
+  section: string;
   totalSeats: number;
   heldSeats: number;
   confirmedSeats: number;
@@ -22,6 +23,7 @@ function toClassDto(row: ClassAvailabilityRow): ClassDto {
   return {
     id: row.id,
     name: row.name,
+    section: row.section,
     totalSeats: row.totalSeats,
     heldSeats: row.heldSeats,
     confirmedSeats: row.confirmedSeats,
@@ -40,7 +42,7 @@ export class PrismaClassService implements ClassService {
   async createClass(input: CreateClassInput): Promise<ClassDto> {
     try {
       const created = await this.prisma.admissionClass.create({
-        data: { name: input.name, totalSeats: input.totalSeats },
+        data: { name: input.name, section: input.section, totalSeats: input.totalSeats },
       });
       return toClassDto({
         ...created,
@@ -50,7 +52,10 @@ export class PrismaClassService implements ClassService {
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictError('CLASS_NAME_TAKEN', `A class named "${input.name}" already exists`);
+        throw new ConflictError(
+          'CLASS_SECTION_TAKEN',
+          `Section "${input.section}" of "${input.name}" already exists`,
+        );
       }
       throw err;
     }
@@ -60,6 +65,7 @@ export class PrismaClassService implements ClassService {
     const rows = await this.prisma.$queryRaw<ClassAvailabilityRow[]>`
       SELECT c.id                  AS "id",
              c.name                AS "name",
+             c.section             AS "section",
              c.total_seats         AS "totalSeats",
              v.held_seats          AS "heldSeats",
              v.confirmed_seats     AS "confirmedSeats",
@@ -67,7 +73,7 @@ export class PrismaClassService implements ClassService {
              c.created_at          AS "createdAt"
       FROM admission_classes c
       JOIN admission_class_availability v ON v.class_id = c.id
-      ORDER BY c.name, c.id`;
+      ORDER BY c.name, c.section, c.id`;
     return rows.map(toClassDto);
   }
 
@@ -75,6 +81,7 @@ export class PrismaClassService implements ClassService {
     const [row] = await this.prisma.$queryRaw<ClassAvailabilityRow[]>`
       SELECT c.id                  AS "id",
              c.name                AS "name",
+             c.section             AS "section",
              c.total_seats         AS "totalSeats",
              v.held_seats          AS "heldSeats",
              v.confirmed_seats     AS "confirmedSeats",

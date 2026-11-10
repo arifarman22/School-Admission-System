@@ -31,7 +31,14 @@ Each assumption below names the part of the brief it interprets and why it was c
   the locking unit, the capacity rule and the UI identical for every class. A Class → Shift
   hierarchy would only add joins without changing any rule. Splitting them later is a schema
   migration, not a redesign.
-- Class names are unique and case-sensitive after trimming and collapsing whitespace.
+- Each class row also has a **section** (A, B, C…). Seats, holds and admissions belong to one
+  class section, so `Class 1` section A and `Class 1` section B are filled independently.
+- The pair (class name, section) is unique, compared case-insensitively after trimming and
+  collapsing whitespace. Creating `Class 1` section A twice returns 409 `CLASS_SECTION_TAKEN`;
+  `Class 1` section B is allowed. Sections are stored upper-case and may contain letters, numbers,
+  spaces and hyphens (up to 20 characters).
+- `section` is optional in the API and defaults to `A`, so older clients keep working. Classes that
+  existed before sections were introduced were migrated to section `A`.
 
 ### "First come, first served" means first to reach the database
 

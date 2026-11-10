@@ -45,7 +45,7 @@ public sealed class HoldService(IDatabaseServiceClient databaseService) : IHoldS
     {
         var holds = await databaseService.ListStudentHoldsAsync(studentId, cancellationToken);
         return holds
-            .Select(h => new StudentHoldResponse(h.HoldId, h.ClassId, h.ClassName, h.Status, h.ExpiresAt.UtcDateTime))
+            .Select(h => new StudentHoldResponse(h.HoldId, h.ClassId, h.ClassName, h.Section, h.Status, h.ExpiresAt.UtcDateTime))
             .ToList();
     }
 }

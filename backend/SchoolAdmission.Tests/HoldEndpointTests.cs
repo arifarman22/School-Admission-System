@@ -240,6 +240,7 @@ public sealed class HoldEndpointTests : IDisposable
                 holdId = HoldId,
                 classId = ClassId,
                 className = "Class 6 - Morning Shift",
+                section = "A",
                 studentId = StudentId,
                 status = "HELD",
                 createdAt = "2026-11-01T04:00:00.000Z",
@@ -253,7 +254,7 @@ public sealed class HoldEndpointTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await JsonAssert.ReadJsonAsync(response);
         var item = Assert.Single(body.EnumerateArray());
-        JsonAssert.HasExactProperties(item, "holdId", "classId", "className", "status", "expiresAt");
+        JsonAssert.HasExactProperties(item, "holdId", "classId", "className", "section", "status", "expiresAt");
         Assert.Equal("Class 6 - Morning Shift", item.GetProperty("className").GetString());
     }
 

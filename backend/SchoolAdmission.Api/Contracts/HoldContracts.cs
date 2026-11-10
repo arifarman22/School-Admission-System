@@ -15,5 +15,6 @@ public sealed record StudentHoldResponse(
     string HoldId,
     int ClassId,
     string ClassName,
+    string Section,
     string Status,
     DateTime ExpiresAt);

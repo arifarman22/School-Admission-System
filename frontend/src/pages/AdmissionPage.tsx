@@ -153,6 +153,7 @@ function HoldDetails({ hold, isFetching, updatedAt, refetch }: HoldDetailsProps)
               <span className="font-semibold">{hold.status}</span>
             </DetailRow>
             <DetailRow label="Class">{className ?? `Class #${hold.classId}`}</DetailRow>
+            <DetailRow label="Section">{classQuery.data?.section ?? '—'}</DetailRow>
             <DetailRow label="Class number">#{hold.classId}</DetailRow>
             <DetailRow label="Seats available">
               {classQuery.data

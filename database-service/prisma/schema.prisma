@@ -21,7 +21,8 @@ enum AdmissionStatus {
 
 model AdmissionClass {
   id         Int      @id @default(autoincrement())
-  name       String   @unique @db.VarChar(100)
+  name       String   @db.VarChar(100)
+  section    String   @default("A") @db.VarChar(20)
   totalSeats Int      @map("total_seats")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

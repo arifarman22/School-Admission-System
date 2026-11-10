@@ -46,6 +46,7 @@ async function createClassThroughUi(name: string, seats: number) {
   const view = renderRoutes(routes, { initialPath: '/admin/classes/new' });
   const user = userEvent.setup();
   await user.type(screen.getByLabelText('Class name'), name);
+  await user.type(screen.getByLabelText('Section'), 'A');
   await user.type(screen.getByLabelText('Total seats'), String(seats));
   await user.click(screen.getByRole('button', { name: 'Create class' }));
   expect(await screen.findByText('Class created', {}, { timeout: 10_000 })).toBeInTheDocument();

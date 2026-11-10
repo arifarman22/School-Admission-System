@@ -57,7 +57,7 @@ describe.skipIf(!url || !dedicated)('Prisma services against PostgreSQL', () => 
   });
 
   const newClass = (label: string, totalSeats: number) =>
-    classes.createClass({ name: `${tag} ${label}`, totalSeats });
+    classes.createClass({ name: `${tag} ${label}`, section: 'A', totalSeats });
 
   const statusOf = async (holdId: string) =>
     (await pool.query('SELECT status FROM admission_holds WHERE id = $1', [holdId])).rows[0]
@@ -112,7 +112,7 @@ describe.skipIf(!url || !dedicated)('Prisma services against PostgreSQL', () => 
     await newClass('duplicate', 5);
     const error = await newClass('duplicate', 9).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ConflictError);
-    expect((error as ConflictError).code).toBe('CLASS_NAME_TAKEN');
+    expect((error as ConflictError).code).toBe('CLASS_SECTION_TAKEN');
     const { rows } = await pool.query(
       'SELECT count(*)::int AS n FROM admission_classes WHERE name = $1',
       [`${tag} duplicate`],

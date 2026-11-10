@@ -10,7 +10,7 @@ const FRIENDLY_MESSAGES: Record<string, string> = {
   HOLD_ALREADY_CONFIRMED: 'This admission is already confirmed.',
   HOLD_NOT_OWNED: 'This application belongs to a different student.',
   STUDENT_ID_REQUIRED: 'Enter your birth registration number first.',
-  CLASS_NAME_TAKEN: 'A class with this name already exists.',
+  CLASS_SECTION_TAKEN: 'This section already exists for the class.',
   NOT_FOUND: 'We could not find what you were looking for.',
   SERVICE_BUSY: 'The system is busy right now. Please try again in a moment.',
   SERVICE_UNAVAILABLE: 'The admission service is temporarily unavailable.',

@@ -13,6 +13,20 @@ export const classNameSchema = z
   .regex(/^[^\p{Cc}\p{Cf}]*$/u, 'name must not contain control or invisible formatting characters')
   .transform((name) => name.replace(/\s+/g, ' '));
 
+export const SECTION_MAX_LENGTH = 20;
+export const DEFAULT_SECTION = 'A';
+
+export const sectionSchema = z
+  .string({ error: 'section must be a string' })
+  .trim()
+  .min(1, 'section must not be empty')
+  .max(SECTION_MAX_LENGTH, `section must be at most ${SECTION_MAX_LENGTH} characters`)
+  .regex(
+    /^(?:[\p{L}\p{N}][\p{L}\p{N} -]*)?$/u,
+    'section may only contain letters, numbers, spaces and hyphens',
+  )
+  .transform((section) => section.replace(/\s+/g, ' ').toUpperCase());
+
 export const totalSeatsSchema = z
   .number({
     error: (issue) =>
@@ -24,6 +38,7 @@ export const totalSeatsSchema = z
 
 export const createClassBodySchema = z.strictObject({
   name: classNameSchema,
+  section: sectionSchema.default(DEFAULT_SECTION),
   totalSeats: totalSeatsSchema,
 });
 
@@ -53,6 +68,7 @@ export type ClassIdParams = z.output<typeof classIdParamsSchema>;
 export interface ClassDto {
   id: number;
   name: string;
+  section: string;
   totalSeats: number;
   heldSeats: number;
   confirmedSeats: number;

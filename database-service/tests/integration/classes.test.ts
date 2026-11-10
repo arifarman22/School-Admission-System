@@ -78,10 +78,24 @@ describe.skipIf(!url)('classes API against PostgreSQL', () => {
     for (const name of [`${prefix} Class A`, `  ${prefix}   Class A `]) {
       const res = await post({ name, totalSeats: 5 });
       expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('CLASS_NAME_TAKEN');
+      expect(res.body.error.code).toBe('CLASS_SECTION_TAKEN');
     }
     const count = await prisma.admissionClass.count({ where: { name: `${prefix} Class A` } });
     expect(count).toBe(1);
+  });
+
+  it('allows several sections of one class but rejects a repeated section', async () => {
+    const name = `${prefix} Sectioned`;
+    expect((await post({ name, section: 'A', totalSeats: 30 })).status).toBe(201);
+    expect((await post({ name, section: 'B', totalSeats: 30 })).status).toBe(201);
+    const duplicate = await post({ name: name.toUpperCase(), section: 'a', totalSeats: 30 });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error.code).toBe('CLASS_SECTION_TAKEN');
+    const rows = await prisma.admissionClass.findMany({
+      where: { name },
+      orderBy: { section: 'asc' },
+    });
+    expect(rows.map((r) => r.section)).toEqual(['A', 'B']);
   });
 
   it('enforces uniqueness in the database under concurrent creation', async () => {
@@ -94,9 +108,10 @@ describe.skipIf(!url)('classes API against PostgreSQL', () => {
     expect(await prisma.admissionClass.count({ where: { name } })).toBe(1);
   });
 
-  it('treats names as case-sensitive', async () => {
-    const res = await post({ name: `${prefix} CLASS A`, totalSeats: 5 });
-    expect(res.status).toBe(201);
+  it('treats class names and sections as case-insensitive for uniqueness', async () => {
+    const res = await post({ name: `${prefix} CLASS A`, section: 'a', totalSeats: 5 });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('CLASS_SECTION_TAKEN');
   });
 
   it('rejects invalid input before it reaches the database', async () => {

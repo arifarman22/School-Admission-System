@@ -138,16 +138,17 @@ Base URL `http://localhost:8080`. Endpoints marked ✔ under "Student ID" requir
 
 | Method | Path                       | Student ID | Success | Response body                                                           |
 | ------ | -------------------------- | ---------- | ------- | ----------------------------------------------------------------------- |
-| POST   | `/classes`                 |            | 201     | `{ id, name, totalSeats }` + `Location`                                 |
-| GET    | `/classes`                 |            | 200     | `[{ id, name, totalSeats, heldSeats, confirmedSeats, availableSeats }]` |
-| GET    | `/classes/{classId}`       |            | 200     | `{ id, name, totalSeats, heldSeats, confirmedSeats, availableSeats }`   |
+| POST   | `/classes`                 |            | 201     | `{ id, name, section, totalSeats }` + `Location`                        |
+| GET    | `/classes`                 |            | 200     | `[{ id, name, section, totalSeats, heldSeats, confirmedSeats, availableSeats }]` |
+| GET    | `/classes/{classId}`       |            | 200     | `{ id, name, section, totalSeats, heldSeats, confirmedSeats, availableSeats }` |
 | POST   | `/classes/{classId}/holds` | ✔          | 201     | `{ holdId, classId, studentId, status, expiresAt }` + `Location`        |
 | GET    | `/holds/{holdId}`          |            | 200     | `{ holdId, classId, status, expiresAt }`                                |
 | POST   | `/holds/{holdId}/confirm`  | ✔          | 200     | `{ holdId, status }`                                                    |
 | DELETE | `/holds/{holdId}`          | ✔          | 204     | empty (the hold becomes `CANCELLED`; it is not deleted)                 |
-| GET    | `/me/holds`                | ✔          | 200     | `[{ holdId, classId, className, status, expiresAt }]`, newest first     |
+| GET    | `/me/holds`                | ✔          | 200     | `[{ holdId, classId, className, section, status, expiresAt }]`, newest first |
 
-- `POST /classes` takes `{ "name": string, "totalSeats": 1–10000 }`.
+- `POST /classes` takes `{ "name": string, "section"?: string, "totalSeats": 1–10000 }`. `section`
+  defaults to `"A"`; each (name, section) pair can exist only once (case-insensitive).
 - Class IDs are positive integers (`1`, `2`, `3`, …) assigned by the database. Hold IDs are UUIDs.
 - A student can have only **one confirmed admission** in total. Applying to or confirming another
   class afterwards returns `409 ALREADY_ADMITTED`.
@@ -163,7 +164,7 @@ Base URL `http://localhost:8080`. Endpoints marked ✔ under "Student ID" requir
 | 401    | `STUDENT_ID_REQUIRED`                                                                                                                      |
 | 403    | `HOLD_NOT_OWNED`                                                                                                                           |
 | 404    | `NOT_FOUND`                                                                                                                                |
-| 409    | `CLASS_NAME_TAKEN`, `SEATS_FULL`, `DUPLICATE_APPLICATION`, `ALREADY_ADMITTED`, `HOLD_EXPIRED`, `HOLD_NOT_ACTIVE`, `HOLD_ALREADY_CONFIRMED` |
+| 409    | `CLASS_SECTION_TAKEN`, `SEATS_FULL`, `DUPLICATE_APPLICATION`, `ALREADY_ADMITTED`, `HOLD_EXPIRED`, `HOLD_NOT_ACTIVE`, `HOLD_ALREADY_CONFIRMED` |
 | 502    | `UPSTREAM_ERROR` (internal service failed; no internal details are returned)                                                               |
 | 503    | `SERVICE_BUSY` (with `Retry-After: 1`), `SERVICE_UNAVAILABLE`                                                                              |
 | 504    | `UPSTREAM_TIMEOUT`                                                                                                                         |

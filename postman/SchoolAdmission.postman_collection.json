@@ -118,7 +118,8 @@
                   "pm.test('status is 201', () => pm.response.to.have.status(201));",
                   "const c = pm.response.json();",
                   "pm.test('id is a number', () => pm.expect(c.id).to.be.a('number'));",
-                  "pm.test('body is { id, name, totalSeats }', () => pm.expect(Object.keys(c).sort()).to.eql(['id','name','totalSeats']));",
+                  "pm.test('body is { id, name, section, totalSeats }', () => pm.expect(Object.keys(c).sort()).to.eql(['id','name','section','totalSeats']));",
+                  "pm.test('section is A', () => pm.expect(c.section).to.eql('A'));",
                   "pm.collectionVariables.set('classId', c.id);"
                 ]
               }
@@ -134,7 +135,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Class 6 - Morning Shift {{$timestamp}}\",\n  \"totalSeats\": 2\n}",
+              "raw": "{\n  \"name\": \"Class 6 - Morning Shift {{$timestamp}}\",\n  \"section\": \"A\",\n  \"totalSeats\": 2\n}",
               "options": {
                 "raw": {
                   "language": "json"
