@@ -1,18 +1,19 @@
 # School Admission System
 
 An online admission system for a private school where seats are given **first come, first served**.
-Each class/shift has a fixed number of seats (for example "Class 6 – Morning Shift", 120 seats),
-and thousands of guardians can apply at the same moment.
+Each class can have several sections (for example "Class 1", sections A, B and C), each section has
+a fixed number of seats, and thousands of guardians can apply at the same moment.
 
 - Applying **holds** a seat in the student's name for 10 minutes.
 - Confirming within that time (standing in for paying the admission fee) **confirms** the
   admission.
 - A hold that isn't confirmed **expires** and its seat becomes available again.
-- An admin creates classes from the UI.
+- An admin creates classes and their sections from the UI. Each class + section pair can exist
+  only once, so "Class 1 – A" can't be created twice.
 - Guardians apply, confirm, cancel and follow their applications from the UI.
 
-The core guarantee: **a class never has more held + confirmed seats than its total**, no matter how
-many requests arrive at once or how many service instances are running.
+The core guarantee: **a class section never has more held + confirmed seats than its total**, no
+matter how many requests arrive at once or how many service instances are running.
 
 Decisions behind the design are in [ASSUMPTIONS.md](ASSUMPTIONS.md). How AI was used is in
 [AI_USAGE.md](AI_USAGE.md).
@@ -112,7 +113,7 @@ docker compose --profile local-db down     # include the profile, or postgres ke
 **Other commands**
 
 ```bash
-docker compose run --rm migrate npx prisma db seed   # optional: seed "Class 1" (30) and "Class 2" (25)
+docker compose run --rm migrate npx prisma db seed   # optional: seed Class 1 A (30), Class 1 B (30), Class 2 A (25)
 HOLD_DURATION_SECONDS=30 docker compose up -d         # shorter holds for a demo
 docker compose -f docker-compose.yml -f docker-compose.debug.yml --profile local-db up -d
                                                       # debugging: 127.0.0.1:5432 and 127.0.0.1:4000
@@ -122,33 +123,45 @@ docker compose -f docker-compose.yml -f docker-compose.debug.yml --profile local
 
 | Route                | Who      | What                                                                             |
 | -------------------- | -------- | -------------------------------------------------------------------------------- |
-| `/classes`           | Guardian | Classes with live seat counts (every 3 s) and **Apply Now**                      |
+| `/classes`           | Guardian | Class sections with live seat counts (every 3 s) and **Apply Now**              |
 | `/applications/:id`  | Guardian | Status, countdown, **Confirm Admission**, **Cancel Application** (with a dialog) |
 | `/me/applications`   | Guardian | Current applications and history                                                 |
-| `/admin/classes/new` | Admin    | Create a class/shift with its seat count                                         |
+| `/admin/classes/new` | Admin    | Create a class section with its seat count                                       |
 
 When the site opens, a welcome screen asks for the student's 17-digit birth registration number
 (spaces and dashes are accepted). It is kept in `localStorage` and shown, masked, at the top of
 every page, where it can be changed or cleared. Admin pages don't need it.
+
+The create-class page is a standard admin form: class name (suggesting existing classes), section
+(with A–F quick picks; sections that already exist are greyed out and the next free one is
+suggested) and total seats. A side panel lists the sections the class already has. Duplicates are
+flagged while typing, before anything is sent, and the server rejects them again with
+`409 CLASS_SECTION_TAKEN`. After saving, **Add another section** refills the form with the same
+class and the next free section.
 
 ## API endpoints
 
 Base URL `http://localhost:8080`. Endpoints marked ✔ under "Student ID" require the
 `X-Student-Id` header (17 digits).
 
-| Method | Path                       | Student ID | Success | Response body                                                           |
-| ------ | -------------------------- | ---------- | ------- | ----------------------------------------------------------------------- |
-| POST   | `/classes`                 |            | 201     | `{ id, name, section, totalSeats }` + `Location`                        |
+| Method | Path                       | Student ID | Success | Response body                                                                    |
+| ------ | -------------------------- | ---------- | ------- | -------------------------------------------------------------------------------- |
+| POST   | `/classes`                 |            | 201     | `{ id, name, section, totalSeats }` + `Location`                                 |
 | GET    | `/classes`                 |            | 200     | `[{ id, name, section, totalSeats, heldSeats, confirmedSeats, availableSeats }]` |
-| GET    | `/classes/{classId}`       |            | 200     | `{ id, name, section, totalSeats, heldSeats, confirmedSeats, availableSeats }` |
-| POST   | `/classes/{classId}/holds` | ✔          | 201     | `{ holdId, classId, studentId, status, expiresAt }` + `Location`        |
-| GET    | `/holds/{holdId}`          |            | 200     | `{ holdId, classId, status, expiresAt }`                                |
-| POST   | `/holds/{holdId}/confirm`  | ✔          | 200     | `{ holdId, status }`                                                    |
-| DELETE | `/holds/{holdId}`          | ✔          | 204     | empty (the hold becomes `CANCELLED`; it is not deleted)                 |
-| GET    | `/me/holds`                | ✔          | 200     | `[{ holdId, classId, className, section, status, expiresAt }]`, newest first |
+| GET    | `/classes/{classId}`       |            | 200     | `{ id, name, section, totalSeats, heldSeats, confirmedSeats, availableSeats }`   |
+| POST   | `/classes/{classId}/holds` | ✔          | 201     | `{ holdId, classId, studentId, status, expiresAt }` + `Location`                 |
+| GET    | `/holds/{holdId}`          |            | 200     | `{ holdId, classId, status, expiresAt }`                                         |
+| POST   | `/holds/{holdId}/confirm`  | ✔          | 200     | `{ holdId, status }`                                                             |
+| DELETE | `/holds/{holdId}`          | ✔          | 204     | empty (the hold becomes `CANCELLED`; it is not deleted)                          |
+| GET    | `/me/holds`                | ✔          | 200     | `[{ holdId, classId, className, section, status, expiresAt }]`, newest first     |
 
-- `POST /classes` takes `{ "name": string, "section"?: string, "totalSeats": 1–10000 }`. `section`
-  defaults to `"A"`; each (name, section) pair can exist only once (case-insensitive).
+- `POST /classes` takes `{ "name": string, "section"?: string, "totalSeats": 1–10000 }`.
+  - `section` is optional and defaults to `"A"`. It is trimmed, upper-cased, and may contain
+    letters, numbers, spaces and hyphens (up to 20 characters).
+  - Each (name, section) pair can exist only once, compared case-insensitively: a second
+    `Class 1` / `A` returns `409 CLASS_SECTION_TAKEN`, while `Class 1` / `B` is accepted.
+- Every class section is a separate class with its own numeric `id` and its own seats. Students
+  apply to a specific section.
 - Class IDs are positive integers (`1`, `2`, `3`, …) assigned by the database. Hold IDs are UUIDs.
 - A student can have only **one confirmed admission** in total. Applying to or confirming another
   class afterwards returns `409 ALREADY_ADMITTED`.
@@ -186,6 +199,11 @@ Root `.env`, read by Docker Compose (template: [.env.example](.env.example)):
 | `RESERVATION_LOCK_TIMEOUT_MS`         | `5000`                               | Max wait for a class lock before `503 SERVICE_BUSY`    |
 | `RESERVATION_TX_TIMEOUT_MS`           | `15000`                              | Max seat-transaction time                              |
 | `DATABASE_POOL_MAX`                   | `10`                                 | Connections per database-service instance              |
+
+> **Careful with `DIRECT_URL`.** Prisma migrations use `DIRECT_URL` whenever it is set and only fall
+> back to `DATABASE_URL` otherwise. When pointing commands at another database (for example a
+> disposable test database), override **both** variables, or the migration runs against the
+> database in `.env`.
 
 Each service also has its own `.env.example` for running outside Docker:
 [database-service](database-service/.env.example), [backend](backend/.env.example) and
@@ -225,17 +243,20 @@ cd frontend && npm install && npm run dev
 
 | Suite                                        | Command (in the project folder)        | Needs                     |
 | -------------------------------------------- | -------------------------------------- | ------------------------- |
-| Database service unit tests (62)             | `npm test`                             | nothing                   |
-| Database service PostgreSQL tests (71)       | `npm test` with the variables below    | a disposable PostgreSQL   |
-| .NET API tests (166 + 6 real-stack)          | `dotnet test SchoolAdmission.sln`      | nothing / running service |
-| Frontend component + MSW tests (108)         | `npm test`                             | nothing                   |
+| Database service unit tests (68)             | `npm test`                             | nothing                   |
+| Database service PostgreSQL tests (72)       | `npm test` with the variables below    | a disposable PostgreSQL   |
+| .NET API tests (170 + 7 real-stack)          | `dotnet test SchoolAdmission.sln`      | nothing / running service |
+| Frontend component + MSW tests (111)         | `npm test`                             | nothing                   |
 | Frontend UI tests against the real stack (6) | `E2E_FULL_STACK=true npm run test:e2e` | API on :8080              |
 
 - **PostgreSQL tests:** set `TEST_DATABASE_URL=postgresql://…` and `TEST_DATABASE_DEDICATED=true`.
   Use a database you can throw away: holds can't be deleted, so test rows stay.
-  `CONCURRENCY_ROUNDS` (default 5) sets how many times the burst tests repeat.
+  `CONCURRENCY_ROUNDS` (default 5) sets how many times the burst tests repeat. To migrate that
+  database first, set `DATABASE_URL` **and** `DIRECT_URL` to it before `npm run prisma:deploy`.
 - **Real-stack .NET tests:** set `REAL_PRISMA_SERVICE_URL` and `REAL_INTERNAL_API_KEY`. Without
-  them those 6 tests are reported as skipped.
+  them those 7 tests are reported as skipped.
+- **.NET runtime:** the API targets .NET 8. On a machine with only a newer runtime, run the tests
+  in Docker instead: `docker build --target build backend` runs the whole suite on the .NET 8 SDK.
 - **Expiry UI test:** add `E2E_HOLD_SECONDS=8` and start the stack with `HOLD_DURATION_SECONDS=8`.
 
 Static checks:
@@ -302,8 +323,8 @@ seat. Several safeguards back this up:
   knows a birth registration number can act for that student, and the admin page is open to
   everyone. Production needs guardian accounts or OTP and an admin role.
 - **No payment gateway.** "Confirm Admission" stands in for a successful fee payment.
-- **Limited admin features.** The admin can create classes and see live counts, but can't edit
-  or close a class or list its applicants.
+- **Limited admin features.** The admin can create classes and sections and see live counts, but
+  can't rename, edit or close a class section or list its applicants.
 - **Lazy expiry.** An expired hold frees its seat immediately in every count and read. Its stored
   status changes to `EXPIRED` at the next seat change for that class, since there is no background
   job.

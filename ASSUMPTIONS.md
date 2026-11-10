@@ -21,24 +21,36 @@ Each assumption below names the part of the brief it interprets and why it was c
 
 ## Admission model
 
-### A class-and-shift is one "class"
+### A class section is the unit of seats
 
 - **Brief:** seats are limited per shift of each class, e.g. "Class 6 – Morning Shift" (120).
-- **Assumption:** every class/shift combination is its own `AdmissionClass` with its own name and
-  `totalSeats`, for example `Class 6 – Morning Shift` and `Class 6 – Day Shift`. There is no
-  separate Shift entity.
-- **Why:** seats are counted per shift, so the shift is the unit of capacity. One flat entity keeps
-  the locking unit, the capacity rule and the UI identical for every class. A Class → Shift
-  hierarchy would only add joins without changing any rule. Splitting them later is a schema
-  migration, not a redesign.
-- Each class row also has a **section** (A, B, C…). Seats, holds and admissions belong to one
-  class section, so `Class 1` section A and `Class 1` section B are filled independently.
-- The pair (class name, section) is unique, compared case-insensitively after trimming and
-  collapsing whitespace. Creating `Class 1` section A twice returns 409 `CLASS_SECTION_TAKEN`;
-  `Class 1` section B is allowed. Sections are stored upper-case and may contain letters, numbers,
-  spaces and hyphens (up to 20 characters).
-- `section` is optional in the API and defaults to `A`, so older clients keep working. Classes that
-  existed before sections were introduced were migrated to section `A`.
+- **Assumption:** a class can have several **sections** (A, B, C…), and each class + section
+  combination is its own `AdmissionClass` row with its own `id` and `totalSeats`. For example
+  `Class 1` / `A` (30 seats) and `Class 1` / `B` (30 seats) are filled independently. A shift can
+  be expressed in the name (`Class 6 – Morning Shift`) or as a section; there is no separate
+  Shift or Section table.
+- **Why:** seats are counted per section (or shift), so that is the unit of capacity. One flat
+  entity keeps the locking unit, the capacity rule and the UI identical for every section. A
+  Class → Section hierarchy would only add joins without changing any rule. Splitting them later
+  is a schema migration, not a redesign.
+
+### Each class section can exist only once
+
+- **Assumption:** the pair (class name, section) is unique. Names and sections are trimmed and
+  inner whitespace is collapsed, and the comparison ignores letter case, so `class 1` / `a` is
+  the same as `Class 1` / `A`. Creating it twice returns `409 CLASS_SECTION_TAKEN`; `Class 1` /
+  `B` is allowed.
+- Sections are stored upper-case and may contain letters, numbers, spaces and hyphens (up to 20
+  characters), which covers `A`, `B`, `2` or `Science`.
+- **Why:** two "Class 1 – A" rows would split one real section's seats across two lists and
+  confuse guardians. Ignoring case stops near-duplicates that look identical to a person.
+- **Enforced twice:**
+  1. The create page checks the classes it has already loaded and blocks a duplicate while the
+     admin types.
+  2. A unique index on `(lower(name), lower(section))` makes the database refuse duplicates, even
+     from simultaneous requests.
+- `section` is optional in the API and defaults to `A`, so older clients keep working. Classes
+  created before sections existed were migrated to section `A`.
 
 ### "First come, first served" means first to reach the database
 
@@ -183,9 +195,9 @@ Each assumption below names the part of the brief it interprets and why it was c
 ### Admin capabilities
 
 - **Brief:** the admin does everything from the UI.
-- **Assumption:** the admin creates classes, setting name and seats, and watches live seat counts.
-  There is no admin login, and no screens for editing or closing a class or listing a class's
-  applicants.
+- **Assumption:** the admin creates class sections, setting the class name, section and seats, and
+  watches live seat counts. There is no admin login, and no screens for renaming, editing or
+  closing a class section or listing its applicants.
 - **Why:** these are the admin actions the admission rules depend on. The others are listed as
   known limitations.
 
@@ -252,8 +264,9 @@ Each assumption below names the part of the brief it interprets and why it was c
   inside an interactive transaction, because Prisma's query API can't express `FOR UPDATE`.
 - Capacity is never stored. `heldSeats`, `confirmedSeats` and `availableSeats` are computed by
   counting rows (view `admission_class_availability`), so there's no counter that can drift.
-- Constraints Prisma can't express are written as SQL in a migration: CHECKs on seats, name and
-  student ID, the partial unique index, history triggers and the availability view. Migrations
+- Constraints Prisma can't express are written as SQL in a migration: CHECKs on seats, name,
+  section and student ID, the case-insensitive unique index on class name + section, the partial
+  unique indexes, history triggers and the availability view. Migrations
   are applied with `prisma migrate deploy`; `db push` is never used.
 - PostgreSQL is Neon by default (pooled URL at runtime, direct URL for migrations, TLS
   `verify-full`). A local PostgreSQL 18 container is available through the `local-db` compose
@@ -283,9 +296,17 @@ Each assumption below names the part of the brief it interprets and why it was c
 - The site opens on a welcome screen that asks for the birth registration number before any
   student page is shown. It explains the three steps (apply, seat held, confirm), counts digits as
   they are typed, and accepts spaces and dashes. Admin pages are reachable without a number.
-- The class list has search (by name or number), Open/Full filters and sorting, a low-seats
-  warning, and summary counts. The application page shows a three-step progress tracker and the
-  next action to take.
+- The class list has search (by name, section or number), Open/Full filters and sorting (by
+  name, then section), a low-seats warning, and summary counts. Each card shows its section as a
+  badge. The application page shows a three-step progress tracker and the next action to take.
+- The create-class page is laid out as a standard admin form: breadcrumb, labelled rows for class,
+  section and capacity, required-field markers, and Reset / Cancel / Create at the bottom.
+  - The class name field suggests existing class names, so new sections join the right class.
+  - Section quick picks (A–F) grey out sections that already exist and name the next free one.
+  - A side panel lists the class's existing sections with their seats.
+  - After a save, **Add another section** refills the form with the same class and the next free
+    section, which makes setting up A, B, C… quick.
+  - If the class list can't be loaded, the form still works; the server still rejects duplicates.
 
 ## Versions
 
